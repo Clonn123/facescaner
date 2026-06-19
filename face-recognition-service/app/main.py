@@ -1,0 +1,79 @@
+from fastapi import FastAPI, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
+
+from app.core.config import get_settings
+from app.core.database import init_db, close_db
+from app.api import employees, recognize, liveness
+from app.models.schemas import HealthResponse
+
+settings = get_settings()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Управление жизненным циклом приложения."""
+    # Запуск
+    print("Initializing Face Recognition Service...")
+    await init_db()
+    print("Database initialized")
+    yield
+    # Остановка
+    await close_db()
+    print("Face Recognition Service stopped")
+
+
+app = FastAPI(
+    title="Face Recognition Service",
+    description="Сервис распознавания лиц для HR-модуля",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Подключение маршрутов
+app.include_router(employees.router, prefix="/api/v1")
+app.include_router(recognize.router, prefix="/api/v1")
+app.include_router(liveness.router, prefix="/api/v1")
+
+
+@app.get("/health", response_model=HealthResponse)
+async def health_check():
+    """Проверка работоспособности сервиса."""
+    from app.services.face_detector import FaceDetector
+    from app.services.anti_spoof import AntiSpoof
+    
+    detector = FaceDetector()
+    detector.initialize()
+    
+    anti_spoof = AntiSpoof()
+    anti_spoof.initialize()
+    
+    return HealthResponse(
+        status="healthy",
+        version="1.0.0",
+        face_detector=detector.get_model_info(),
+        database="connected",
+        model_info={
+            "detector": detector.get_model_info(),
+            "anti_spoof": anti_spoof.get_model_info()
+        }
+    )
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "app.main:app",
+        host=settings.HOST,
+        port=settings.PORT,
+        reload=True
+    )

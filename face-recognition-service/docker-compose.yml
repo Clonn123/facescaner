@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  # PostgreSQL база данных
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: face_recognition
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Face Recognition Service
+  face-service:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/face_recognition
+      FACE_RECOGNITION_THRESHOLD: "0.35"
+      FACE_DETECTION_THRESHOLD: "0.5"
+      LIVENESS_THRESHOLD: "0.7"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./app:/app/app        # Код приложения (разработка)
+      - ./alembic:/app/alembic  # Миграции
+      - ./models:/app/models    # Модели ML
+
+volumes:
+  postgres_data:
