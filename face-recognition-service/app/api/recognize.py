@@ -98,29 +98,15 @@ async def recognize_face(
     # Берём самое большое лицо (первое)
     face_info = faces[0]
     
-    # 2. Anti-spoof на face crop (bbox увеличенный в 2.5 раза)
+    # 2. Anti-spoof using bbox (key: use crop() with 1.5x expansion)
     x1, y1, x2, y2 = map(int, face_info["bbox"])
-    face_w = x2 - x1
-    face_h = y2 - y1
-    face_center_x = (x1 + x2) // 2
-    face_center_y = (y1 + y2) // 2
     
-    # Увеличиваем bbox в 2.5x (чтобы включить шею и фон как в WIDER Face)
-    expanded_w = int(face_w * 1.25)
-    expanded_h = int(face_h * 1.25)
+    # Predict using bbox - anti_spoof will call crop() internally
+    result = anti_spoof.predict_from_bbox(image, (x1, y1, x2, y2))
+    liveness_score = result["liveness_score"]
+    is_live = result["is_real"]
     
-    anti_crop = image[
-        max(0, face_center_y - expanded_h):min(image.shape[0], face_center_y + expanded_h),
-        max(0, face_center_x - expanded_w):min(image.shape[1], face_center_x + expanded_w)
-    ]
-    
-    print(f"[DEBUG] Anti-spoof crop shape: {anti_crop.shape}")
-    
-    # Anti-spoof
-    liveness_score = anti_spoof.predict_with_smoothing(anti_crop, frames_count=3)
-    is_live = liveness_score >= settings.LIVENESS_THRESHOLD
-    
-    print(f"[LIVENESS] score={liveness_score:.3f} threshold={settings.LIVENESS_THRESHOLD}")
+    print(f"[LIVENESS] score={liveness_score:.3f} is_real={is_live}")
     
     if not is_live:
         return RecognizeResponse(

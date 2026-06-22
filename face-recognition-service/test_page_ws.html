@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Face Recognition - WebSocket Camera</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            background: #16213e;
+            border-radius: 20px;
+            padding: 30px;
+            max-width: 900px;
+            width: 100%;
+            color: #fff;
+        }
+        h1 { text-align: center; margin-bottom: 20px; }
+        .video-container {
+            position: relative;
+            width: 100%;
+            max-width: 640px;
+            margin: 0 auto 20px;
+            border-radius: 15px;
+            overflow: hidden;
+            background: #000;
+        }
+        video { width: 100%; display: block; }
+        canvas { display: none; }
+        .status-panel {
+            background: #0f3460;
+            border-radius: 15px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        .status-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .status-row:last-child { border-bottom: none; }
+        .status-label { color: #a0a0a0; }
+        .status-value { font-weight: bold; }
+        .status-value.success { color: #4ade80; }
+        .status-value.error { color: #f87171; }
+        .status-value.warning { color: #fbbf24; }
+        .controls {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin: 20px 0;
+        }
+        button {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .btn-primary:hover { transform: translateY(-2px); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .employee-form {
+            background: #0f3460;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 5px; color: #a0a0a0; }
+        .form-group input {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            background: #16213e;
+            color: #fff;
+            font-size: 14px;
+        }
+        .form-group input:focus { outline: none; border-color: #667eea; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>👤 Face Recognition - Live Camera</h1>
+        
+        <div class="employee-form">
+            <h3 style="margin-bottom: 15px;">Register Employee</h3>
+            <div class="form-group">
+                <label>Account ID</label>
+                <input type="text" id="accountId" placeholder="e.g., emp_001">
+            </div>
+            <div class="form-group">
+                <label>Name</label>
+                <input type="text" id="employeeName" placeholder="e.g., John Doe">
+            </div>
+            <button class="btn-primary" onclick="registerEmployee()" style="width: 100%;">
+                Register Employee
+            </button>
+        </div>
+        
+        <div class="video-container">
+            <video id="video" autoplay playsinline></video>
+            <canvas id="canvas"></canvas>
+        </div>
+        
+        <div class="controls">
+            <button class="btn-primary" id="startBtn" onclick="startCamera()">
+                📷 Start Camera
+            </button>
+            <button class="btn-primary" id="connectBtn" onclick="connectWebSocket()" disabled>
+                🔌 Connect
+            </button>
+        </div>
+        
+        <div class="status-panel" id="statusPanel" style="display: none;">
+            <div class="status-row">
+                <span class="status-label">Face Detected:</span>
+                <span class="status-value" id="faceDetected">N/A</span>
+            </div>
+            <div class="status-row">
+                <span class="status-label">Liveness:</span>
+                <span class="status-value" id="liveness">N/A</span>
+            </div>
+            <div class="status-row">
+                <span class="status-label">Liveness Score:</span>
+                <span class="status-value" id="livenessScore">N/A</span>
+            </div>
+            <div class="status-row">
+                <span class="status-label">Recognized:</span>
+                <span class="status-value" id="recognized">N/A</span>
+            </div>
+            <div class="status-row">
+                <span class="status-label">Name:</span>
+                <span class="status-value" id="name">N/A</span>
+            </div>
+            <div class="status-row">
+                <span class="status-label">Processing Time:</span>
+                <span class="status-value" id="processingTime">N/A</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let videoStream = null;
+        let ws = null;
+        let frameInterval = null;
+        let isConnected = false;
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        
+        async function startCamera() {
+            if (videoStream) {
+                // Already running - stop it
+                if (videoStream) {
+                    videoStream.getTracks().forEach(track => track.stop());
+                    videoStream = null;
+                    video.srcObject = null;
+                }
+                if (isConnected && ws) {
+                    ws.close();
+                }
+                if (frameInterval) {
+                    clearInterval(frameInterval);
+                    frameInterval = null;
+                }
+                isConnected = false;
+                document.getElementById('startBtn').textContent = '📷 Start Camera';
+                document.getElementById('startBtn').disabled = false;
+                document.getElementById('connectBtn').disabled = true;
+                document.getElementById('connectBtn').textContent = '🔌 Connect';
+                document.getElementById('connectBtn').classList.add('btn-primary');
+                document.getElementById('connectBtn').style.background = '';
+                return;
+            }
+            
+            try {
+                videoStream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { width: 640, height: 480 }
+                });
+                video.srcObject = videoStream;
+                document.getElementById('startBtn').textContent = '✅ Camera Active';
+                document.getElementById('startBtn').disabled = true;
+                document.getElementById('connectBtn').disabled = false;
+            } catch (err) {
+                alert('Camera error: ' + err.message);
+            }
+        }
+        
+        function connectWebSocket() {
+            if (isConnected) {
+                // Disconnect
+                if (ws) {
+                    ws.close();
+                }
+                return;
+            }
+            
+            if (!videoStream) {
+                alert('Please start the camera first');
+                return;
+            }
+            
+            const host = window.location.hostname || 'localhost';
+            const port = window.location.port || '8000';
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${host}:${port}/ws/camera`);
+            
+            ws.onopen = () => {
+                isConnected = true;
+                document.getElementById('connectBtn').textContent = '🔌 Disconnect';
+                document.getElementById('connectBtn').classList.remove('btn-primary');
+                document.getElementById('connectBtn').style.background = '#f87171';
+                
+                // Start sending frames
+                frameInterval = setInterval(sendFrame, 100); // 10 FPS
+            };
+            
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                updateStatus(data);
+            };
+            
+            ws.onclose = () => {
+                isConnected = false;
+                document.getElementById('connectBtn').textContent = '🔌 Connect';
+                document.getElementById('connectBtn').classList.add('btn-primary');
+                document.getElementById('connectBtn').style.background = '';
+                if (frameInterval) clearInterval(frameInterval);
+                ws = null;
+                console.log('WebSocket disconnected (camera still active)');
+            };
+        }
+        
+        function sendFrame() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                if (frameInterval) clearInterval(frameInterval);
+                return;
+            }
+            
+            if (!video.videoWidth || !video.videoHeight) return;
+            
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            const base64 = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+            
+            ws.send(JSON.stringify({ type: 'frame', image_base64: base64 }));
+        }
+        
+        function updateStatus(data) {
+            document.getElementById('statusPanel').style.display = 'block';
+            
+            const faceDetected = document.getElementById('faceDetected');
+            faceDetected.textContent = data.face_detected ? '✅ Yes' : '❌ No';
+            faceDetected.className = 'status-value ' + (data.face_detected ? 'success' : 'error');
+            
+            const liveness = document.getElementById('liveness');
+            if (data.liveness_checked) {
+                liveness.textContent = data.is_live ? '✅ Live' : '❌ Spoof';
+                liveness.className = 'status-value ' + (data.is_live ? 'success' : 'error');
+            } else {
+                liveness.textContent = 'N/A';
+                liveness.className = 'status-value';
+            }
+            
+            document.getElementById('livenessScore').textContent = 
+                data.liveness_score ? data.liveness_score.toFixed(3) : 'N/A';
+            
+            const recognized = document.getElementById('recognized');
+            recognized.textContent = data.recognized ? '✅ Yes' : '❌ No';
+            recognized.className = 'status-value ' + (data.recognized ? 'success' : 'error');
+            
+            document.getElementById('name').textContent = data.name || 'N/A';
+            document.getElementById('processingTime').textContent = 
+                data.processing_time_ms ? data.processing_time_ms.toFixed(0) + 'ms' : 'N/A';
+        }
+        
+        async function registerEmployee() {
+            const accountId = document.getElementById('accountId').value;
+            const name = document.getElementById('employeeName').value;
+            
+            if (!accountId) {
+                alert('Please enter Account ID');
+                return;
+            }
+            
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            const base64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+            
+            const apiUrl = 'http://localhost:8000/api/v1';
+            const response = await fetch(`${apiUrl}/employees/register`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ account_id: accountId, name: name, image_base64: base64 })
+            });
+            
+            const result = await response.json();
+            if (response.ok) {
+                alert('Employee registered: ' + result.employee_id);
+            } else {
+                alert('Registration failed: ' + result.detail);
+            }
+        }
+    </script>
+</body>
+</html>
