@@ -3,14 +3,14 @@ import cv2
 import numpy as np
 import time
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
+from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.services.face_detector import FaceDetector
 from app.services.face_recognizer import FaceRecognizer
-from app.services.anti_spoof import AntiSpoof
+from app.services.liveness.anti_spoof_onnx import AntiSpoofONNX
 from app.services.storage import StorageService
 from app.models.schemas import RecognizeRequest, RecognizeResponse
 from app.models.database_models import Employee
@@ -41,8 +41,7 @@ def get_face_recognizer(detector=Depends(get_face_detector)):
 def get_anti_spoof():
     """Глобальный экземпляр anti-spoof."""
     if not hasattr(get_anti_spoof, "_spoof"):
-        spoof = AntiSpoof()
-        spoof.initialize()
+        spoof = AntiSpoofONNX()
         get_anti_spoof._spoof = spoof
     return get_anti_spoof._spoof
 
@@ -98,30 +97,53 @@ async def recognize_face(
     
     # Берём самое большое лицо (первое)
     face_info = faces[0]
-    face_image = detector.extract_face(image, face_info)
     
-    # 2. Anti-spoofing
-    liveness_result = anti_spoof.verify_liveness(image)
+    # 2. Anti-spoof на face crop (bbox увеличенный в 2.5 раза)
+    x1, y1, x2, y2 = map(int, face_info["bbox"])
+    face_w = x2 - x1
+    face_h = y2 - y1
+    face_center_x = (x1 + x2) // 2
+    face_center_y = (y1 + y2) // 2
     
-    if not liveness_result["is_real"]:
+    # Увеличиваем bbox в 2.5x (чтобы включить шею и фон как в WIDER Face)
+    expanded_w = int(face_w * 1.25)
+    expanded_h = int(face_h * 1.25)
+    
+    anti_crop = image[
+        max(0, face_center_y - expanded_h):min(image.shape[0], face_center_y + expanded_h),
+        max(0, face_center_x - expanded_w):min(image.shape[1], face_center_x + expanded_w)
+    ]
+    
+    print(f"[DEBUG] Anti-spoof crop shape: {anti_crop.shape}")
+    
+    # Anti-spoof
+    liveness_score = anti_spoof.predict_with_smoothing(anti_crop, frames_count=3)
+    is_live = liveness_score >= settings.LIVENESS_THRESHOLD
+    
+    print(f"[LIVENESS] score={liveness_score:.3f} threshold={settings.LIVENESS_THRESHOLD}")
+    
+    if not is_live:
         return RecognizeResponse(
             recognized=False,
             face_detected=True,
             liveness_checked=True,
             is_live=False,
-            liveness_score=liveness_result["liveness_score"],
-            confidence=liveness_result["confidence"],
+            liveness_score=liveness_score,
+            confidence="low",
             processing_time_ms=(time.time() - start_time) * 1000
         )
     
-    # 3. Генерация embedding
+    # 3. Aligned face для recognition
+    face_image = detector.extract_face(image, face_info)
+    
+    # 4. Генерация embedding
     embedding = recognizer.generate_embedding(image, face_info)
     if embedding is None:
         raise HTTPException(
             status_code=500,
             detail="Failed to generate face embedding"
         )
-    
+        
     # 4. Поиск среди зарегистрированных сотрудников
     candidates = await storage.get_all_employees_for_recognition()
     
@@ -131,7 +153,8 @@ async def recognize_face(
             face_detected=True,
             liveness_checked=True,
             is_live=True,
-            liveness_score=liveness_result["liveness_score"],
+            liveness_score=liveness_score,
+            confidence="low",
             processing_time_ms=(time.time() - start_time) * 1000
         )
     
@@ -150,7 +173,7 @@ async def recognize_face(
         await storage.log_liveness(
             employee_id=employee_id,
             account_id=employee.account_id if employee else None,
-            liveness_score=liveness_result["liveness_score"],
+            liveness_score=liveness_score,
             is_real=True,
             source="api"
         )
@@ -165,7 +188,7 @@ async def recognize_face(
             face_detected=True,
             liveness_checked=True,
             is_live=True,
-            liveness_score=liveness_result["liveness_score"],
+            liveness_score=liveness_score,
             processing_time_ms=(time.time() - start_time) * 1000
         )
     
@@ -173,7 +196,7 @@ async def recognize_face(
     await storage.log_liveness(
         employee_id=None,
         account_id=None,
-        liveness_score=liveness_result["liveness_score"],
+        liveness_score=liveness_score,
         is_real=True,
         source="api"
     )
@@ -183,6 +206,6 @@ async def recognize_face(
         face_detected=True,
         liveness_checked=True,
         is_live=True,
-        liveness_score=liveness_result["liveness_score"],
+        liveness_score=liveness_score,
         processing_time_ms=(time.time() - start_time) * 1000
     )

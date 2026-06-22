@@ -89,7 +89,7 @@ class StorageService:
                                    new_embedding: np.ndarray) -> Optional[Employee]:
         """
         Добавление нового face embedding к существующему сотруднику.
-        Усредняет embedding с существующими.
+        Усредняет новый embedding с существующим.
         
         Args:
             employee_id: ID сотрудника
@@ -105,15 +105,14 @@ class StorageService:
         if not employee or not employee.embedding:
             return None
         
-        # Получаем существующие embeddings
-        existing_embeddings = [np.array(e) for e in employee.embedding]
-        existing_embeddings.append(new_embedding)
+        # Получаем существующий embedding как массив
+        existing_emb = np.array(employee.embedding, dtype=np.float32)
         
-        # Усредняем все embeddings
-        averaged = np.mean(existing_embeddings, axis=0)
+        # Усредняем два embedding
+        averaged = (existing_emb + new_embedding) / 2.0
         
         employee.embedding = averaged.tolist()
-        employee.faces_registered = len(existing_embeddings)
+        employee.faces_registered += 1
         employee.updated_at = datetime.utcnow()
         
         await self.db.commit()

@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     # Face Recognition thresholds
     FACE_RECOGNITION_THRESHOLD: float = 0.35
     FACE_DETECTION_THRESHOLD: float = 0.5
-    LIVENESS_THRESHOLD: float = 0.7
+    LIVENESS_THRESHOLD: float = 0.5
 
     # Face processing
     MIN_FACE_SIZE: int = 80

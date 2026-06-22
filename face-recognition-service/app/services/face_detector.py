@@ -56,8 +56,7 @@ class FaceDetector:
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(str(self.model_dir))
         
-        # После распаковки структура: models/models/antelopev2/antelopev2/
-        # Нужно переместить в: models/antelopev2/
+        # После распаковки zip создаёт вложенную структуру — исправляем
         wrong_path = self.model_dir / "models" / "antelopev2"
         if wrong_path.exists() and any(wrong_path.iterdir()):
             inner_path = wrong_path / "antelopev2"

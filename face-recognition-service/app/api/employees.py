@@ -9,12 +9,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.services.face_detector import FaceDetector
 from app.services.face_recognizer import FaceRecognizer
+from app.services.liveness.anti_spoof_onnx import AntiSpoofONNX
 from app.services.storage import StorageService
 from app.models.schemas import (
     RegisterEmployeeRequest,
     RegisterEmployeeResponse,
     EmployeeResponse
 )
+from app.core.config import get_settings
+
+settings = get_settings()
 
 router = APIRouter(prefix="/employees", tags=["Employees"])
 
@@ -28,12 +32,27 @@ def get_face_detector():
     return get_face_detector._detector
 
 
+def get_anti_spoof():
+    """Глобальный экземпляр anti-spoof (singleton)."""
+    if not hasattr(get_anti_spoof, "_spoof"):
+        spoof = AntiSpoofONNX()
+        get_anti_spoof._spoof = spoof
+    return get_anti_spoof._spoof
+
 def get_face_recognizer(detector=Depends(get_face_detector)):
     """Глобальный экземпляр распознавателя."""
     if not hasattr(get_face_recognizer, "_recognizer"):
         recognizer = FaceRecognizer(detector)
         get_face_recognizer._recognizer = recognizer
     return get_face_recognizer._recognizer
+
+
+def get_anti_spoof():
+    """Глобальный экземпляр anti-spoof (singleton)."""
+    if not hasattr(get_anti_spoof, "_spoof"):
+        spoof = AntiSpoofONNX()
+        get_anti_spoof._spoof = spoof
+    return get_anti_spoof._spoof
 
 
 def decode_image(image_base64: str) -> Optional[np.ndarray]:
@@ -65,6 +84,7 @@ async def register_employee(
     """
     detector = get_face_detector()
     recognizer = get_face_recognizer(detector)
+    anti_spoof = get_anti_spoof()
     storage = StorageService(db)
     
     # Создаём запись сотрудника
@@ -97,6 +117,9 @@ async def register_employee(
                 status_code=400,
                 detail=f"Photo quality is too low: {quality['quality']}"
             )
+        
+        # Anti-spoofing НЕ используется для регистрации
+        # Anti-spoof нужен только для real-time camera pipeline
         
         # Генерация embedding
         embedding = recognizer.generate_embedding(image, face_info)
