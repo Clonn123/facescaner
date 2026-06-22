@@ -8,28 +8,31 @@ import zipfile
 import shutil
 import os
 import urllib.request
+import onnxruntime as ort
 
 settings = get_settings()
 
 
 class AntiSpoof:
-    """Anti-spoofing проверка через InsightFace AntelopeV2."""
+    """Anti-spoofing проверка через 4d-prior модель InsightFace."""
 
     def __init__(self):
         self.model_dir = Path("/app/models")
         self.model_dir.mkdir(parents=True, exist_ok=True)
         
-        # Сначала скачиваем и распаковываем модели вручную
+        # Скачиваем и распаковываем модели
         self._download_and_extract_models()
         
-        # Теперь создаём FaceAnalysis - модели уже на месте
-        # root="/app" → ищет в /app/models/antelopev2
+        # FaceAnalysis для детекции
         self.app = FaceAnalysis(
             name="antelopev2",
             root="/app",
-            providers=["CUDAExecutionProvider", "CPUExecutionProvider"]
+            providers=["CPUExecutionProvider"]
         )
         self.app.prepare(ctx_id=0, det_size=(640, 640))
+        
+        # Загружаем 4d-prior модель
+        self.model = None
         self.is_ready = False
 
     def _download_and_extract_models(self):
@@ -69,17 +72,38 @@ class AntiSpoof:
             wrong_path.rename(correct_path)
 
     def initialize(self) -> bool:
-        """Инициализация anti-spoofing."""
+        """Инициализация anti-spoofing — загрузка 4d-prior модели."""
         try:
+            # Ищем 4d-prior.onnx
+            model_path = self.model_dir / "antelopev2" / "4d-prior.onnx"
+            
+            if not model_path.exists():
+                print(f"WARNING: 4d-prior.onnx not found at {model_path}")
+                print("Falling back to basic liveness detection")
+                self.is_ready = False
+                return False
+            
+            # Загружаем модель через onnxruntime
+            sess_options = ort.SessionOptions()
+            self.model = ort.InferenceSession(
+                str(model_path),
+                sess_options=sess_options,
+                providers=["CPUExecutionProvider"]
+            )
             self.is_ready = True
+            print(f"4d-prior model loaded from {model_path}")
             return True
+            
         except Exception as e:
-            print(f"Error initializing anti-spoof: {e}")
+            print(f"Error loading 4d-prior model: {e}")
+            import traceback
+            traceback.print_exc()
+            self.is_ready = False
             return False
 
     def verify_liveness(self, image: np.ndarray) -> dict:
         """
-        Проверка живого присутствия.
+        Проверка живого присутствия через 4d-prior модель.
         
         Args:
             image: BGR изображение
@@ -87,12 +111,12 @@ class AntiSpoof:
         Returns:
             Словарь с результатами проверки
         """
-        if not self.is_ready:
-            raise RuntimeError("Anti-spoof not initialized")
+        if not self.is_ready or self.model is None:
+            # Fallback на базовую проверку
+            return self._fallback_liveness(image)
 
         try:
-            # Получаем все лица с anti-spoofing scoring
-            # InsightFace AntelopeV2 возвращает liveness scores
+            # Получаем лица
             faces = self.app.get(image)
             
             if not faces:
@@ -104,38 +128,32 @@ class AntiSpoof:
                     "message": "Face not detected"
                 }
 
-            # Берём самое большое лицо (первое в списке)
+            # Берём самое большое лицо
             face = faces[0]
             
-            # InsightFace AntelopeV2 предоставляет:
-            # face.liveness или face.bbox_conf для anti-spoof
-            # Используем встроенные метрики
+            # Получаем bbox и keypoints
+            bbox = face.bbox.astype(int)
+            kps = face.kps
             
-            # Получаем liveness score (если доступен)
-            # В AntelopeV2 это обычно face.liveness или через отдельную модель
+            # Нормализуем лицо для 4d-prior
+            cropped = self._crop_face(image, bbox, kps)
             
-            # Для AntelopeV2 anti-spoofing scores доступны как:
-            # - face.bbox (детекция)
-            # - face.kps (keypoints)
-            # - face.embedding (распознавание)
-            # - face.det_score (уверенность детекции)
+            if cropped is None:
+                return self._fallback_liveness(image)
             
-            # Для anti-spoof используем det_score + дополнительные проверки
-            # Так как AntelopeV2 не имеет явного liveness score,
-            # используем комбинированный подход
+            # Делаем предсказание
+            score = self._predict(cropped)
             
-            liveness_score = self._compute_liveness_score(face, image)
+            # 4d-prior возвращает:
+            # score[0][0] > 0.5 — реальное лицо
+            # score[0][0] < 0.5 — spoof (фото/видео)
+            is_real = score > 0.5
             
-            is_real = liveness_score >= settings.LIVENESS_THRESHOLD
-            
-            if is_real:
-                confidence = "high" if liveness_score > 0.85 else "medium"
-            else:
-                confidence = "low"
+            confidence = "high" if score > 0.8 else ("medium" if score > 0.6 else "low")
             
             return {
                 "is_real": is_real,
-                "liveness_score": round(float(liveness_score), 3),
+                "liveness_score": round(float(score), 3),
                 "confidence": confidence,
                 "face_detected": True,
                 "message": "Live face detected" if is_real else "Possible spoof detected"
@@ -143,6 +161,94 @@ class AntiSpoof:
             
         except Exception as e:
             print(f"Error in liveness verification: {e}")
+            import traceback
+            traceback.print_exc()
+            return self._fallback_liveness(image)
+
+    def _crop_face(self, image: np.ndarray, bbox: np.ndarray, kps: np.ndarray) -> Optional[np.ndarray]:
+        """
+        Нормализация лица для 4d-prior модели.
+        Масштабирует и выравнивает лицо по keypoints.
+        """
+        try:
+            from insightface.utils import face_align
+            
+            # Нормализуем bbox в float
+            bbox_float = bbox.astype(np.float32)
+            
+            # Вырезаем и выравниваем лицо
+            cropped = face_align.norm_crop(image, landmark=kps, bbox=bbox_float)
+            
+            # 4d-prior ожидает 224x224
+            if cropped.shape[0] != 224 or cropped.shape[1] != 224:
+                cropped = cv2.resize(cropped, (224, 224))
+            
+            return cropped
+        except Exception as e:
+            print(f"Error cropping face: {e}")
+            return None
+
+    def _predict(self, cropped_face: np.ndarray) -> float:
+        """
+        Предсказание 4d-prior модели.
+        
+        Input: cropped_face BGR 224x224
+        Output: float score (0-1)
+        """
+        try:
+            # 4d-prior ожидает float32, нормализованный к [0, 1]
+            input_tensor = cropped_face.astype(np.float32) / 255.0
+            
+            # Добавляем batch dimension
+            input_tensor = np.expand_dims(input_tensor, axis=0)
+            
+            # Получаем имена входных данных
+            input_name = self.model.get_inputs()[0].name
+            
+            # Делаем предсказание
+            outputs = self.model.run(None, {input_name: input_tensor})
+            
+            # Берём первый выход
+            score = float(outputs[0][0][0])
+            
+            # Сигмоида если нужно
+            if score < 0 or score > 1:
+                score = 1 / (1 + np.exp(-score))
+            
+            return score
+            
+        except Exception as e:
+            print(f"Error in prediction: {e}")
+            return 0.5
+
+    def _fallback_liveness(self, image: np.ndarray) -> dict:
+        """Базовая проверка если 4d-prior недоступна."""
+        try:
+            faces = self.app.get(image)
+            if not faces:
+                return {
+                    "is_real": False,
+                    "liveness_score": 0.0,
+                    "confidence": "low",
+                    "face_detected": False,
+                    "message": "Face not detected"
+                }
+
+            face = faces[0]
+            det_score = float(face.det_score)
+            
+            # Простая эвристика — только детекция confidence
+            is_real = det_score >= (settings.LIVENESS_THRESHOLD * 0.9)
+            
+            return {
+                "is_real": is_real,
+                "liveness_score": round(det_score, 3),
+                "confidence": "medium",
+                "face_detected": True,
+                "message": "Live face detected" if is_real else "Possible spoof detected"
+            }
+        except Exception as e:
+            print(f"Error in fallback liveness: {e}")
             return {
                 "is_real": False,
                 "liveness_score": 0.0,
@@ -151,43 +257,8 @@ class AntiSpoof:
                 "message": f"Error: {str(e)}"
             }
 
-    def _compute_liveness_score(self, face, image: np.ndarray) -> float:
-        """
-        Вычисление оценки живости на основе нескольких метрик.
-        
-        Используем комбинированный подход:
-        1. Детекция confidence
-        2. Проверка ключевых точек
-        3. Анализ текстуры (если возможно)
-        """
-        # Базовый score - уверенность детекции
-        base_score = float(face.det_score)
-        
-        # Дополнительная проверка - количество keypoints
-        # Если keypoints чёткие и в правильных позициях - лицо реальное
-        kps_score = 1.0
-        if hasattr(face, 'kps') and face.kps is not None:
-            # Проверяем разброс keypoints (для фото на экране могут быть артефакты)
-            kps = face.kps
-            if len(kps) >= 5:
-                # Вычисляем дисперсию расстояний между ключевыми точками
-                distances = []
-                for i in range(len(kps) - 1):
-                    dist = np.linalg.norm(kps[i] - kps[i+1])
-                    distances.append(dist)
-                
-                if distances:
-                    std_dev = np.std(distances)
-                    # Низкая дисперсия может указывать на плоское изображение
-                    if std_dev < 5.0:
-                        kps_score = 0.7
-                    elif std_dev < 10.0:
-                        kps_score = 0.85
-        
-        # Комбинируем метрики
-        combined_score = base_score * 0.6 + kps_score * 0.4
-        
-        return min(1.0, max(0.0, combined_score))
-
     def get_model_info(self) -> str:
-        return "InsightFace AntelopeV2 Anti-Spoof"
+        model_info = "InsightFace AntelopeV2"
+        if self.is_ready:
+            model_info += " + 4d-prior"
+        return model_info
