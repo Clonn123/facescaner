@@ -6,7 +6,6 @@ from typing import Optional, List
 from app.core.config import get_settings
 import zipfile
 import shutil
-import os
 
 settings = get_settings()
 
@@ -18,17 +17,16 @@ class FaceDetector:
         self.model_dir = Path("/app/models")
         self.model_dir.mkdir(parents=True, exist_ok=True)
         
-        # Сначала скачиваем и распаковываем модели вручную
+        # Скачиваем и распаковываем модели вручную
         self._download_and_extract_models()
         
-        # Теперь создаём FaceAnalysis - модели уже на месте
-        # root="/app" → ищет в /app/models/antelopev2
+        # Создаём FaceAnalysis
         self.app = FaceAnalysis(
             name="antelopev2",
             root="/app",
-            providers=["CUDAExecutionProvider", "CPUExecutionProvider"]
+            providers=["CPUExecutionProvider"]
         )
-        self.app.prepare(ctx_id=0, det_size=(640, 640))
+        self.app.prepare(ctx_id=0, det_size=(160, 160))
         self.is_ready = False
 
     def _download_and_extract_models(self):
@@ -38,7 +36,6 @@ class FaceDetector:
         
         # Если модели уже есть в правильном месте - выходим
         if model_path.exists() and any(model_path.iterdir()):
-            # Проверяем правильную структуру
             det_model = model_path / "scrfd_10g_bnkps.onnx"
             if det_model.exists():
                 print(f"Models found at {model_path}")
@@ -61,12 +58,10 @@ class FaceDetector:
         if wrong_path.exists() and any(wrong_path.iterdir()):
             inner_path = wrong_path / "antelopev2"
             if inner_path.exists() and any(inner_path.iterdir()):
-                # Перемещаем содержимое на уровень выше
                 for item in inner_path.iterdir():
                     shutil.move(str(item), str(wrong_path / item.name))
                 shutil.rmtree(inner_path)
             
-            # Перемещаем папку antelopev2 из models/
             correct_path = self.model_dir / "antelopev2"
             if correct_path.exists():
                 shutil.rmtree(correct_path)
@@ -86,15 +81,7 @@ class FaceDetector:
             return False
 
     def detect_faces(self, image: np.ndarray) -> List[dict]:
-        """
-        Детекция лиц на изображении.
-        
-        Args:
-            image: BGR изображение (OpenCV format)
-            
-        Returns:
-            Список обнаруженных лиц с bounding boxes и keypoints
-        """
+        """Детекция лиц на изображении."""
         if not self.is_ready:
             raise RuntimeError("Face detector not initialized")
 
@@ -111,19 +98,9 @@ class FaceDetector:
         ]
 
     def extract_face(self, image: np.ndarray, face_info: dict) -> Optional[np.ndarray]:
-        """
-        Извлечение области лица из изображения.
-        
-        Args:
-            image: BGR изображение
-            face_info: Информация о лице (из detect_faces)
-            
-        Returns:
-            Обрезанное лицо (BGR) или None
-        """
+        """Извлечение области лица из изображения."""
         x1, y1, x2, y2 = map(int, face_info["bbox"])
         
-        # Небольшой отступ
         h, w = image.shape[:2]
         pad_x = int((x2 - x1) * 0.1)
         pad_y = int((y2 - y1) * 0.1)
@@ -136,24 +113,12 @@ class FaceDetector:
         return image[y1:y2, x1:x2]
 
     def assess_quality(self, face_image: np.ndarray) -> dict:
-        """
-        Оценка качества лица.
-        
-        Args:
-            face_image: Обрезанное лицо (BGR)
-            
-        Returns:
-            Словарь с метриками качества
-        """
-        # Резкость через оператор Лапласа
+        """Оценка качества лица."""
         gray = cv2.cvtColor(face_image, cv2.COLOR_BGR2GRAY) if len(face_image.shape) == 3 else face_image
         laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
-        sharpness = min(1.0, laplacian_var / 100.0)  # Нормализация
-
-        # Яркость
+        sharpness = min(1.0, laplacian_var / 100.0)
         brightness = float(np.mean(gray)) / 255.0
 
-        # Оценка качества
         if sharpness > 0.7 and brightness > 0.3 and brightness < 0.8:
             quality = "excellent"
         elif sharpness > 0.5 and brightness > 0.2 and brightness < 0.9:
