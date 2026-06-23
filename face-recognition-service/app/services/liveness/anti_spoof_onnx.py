@@ -58,8 +58,8 @@ class AntiSpoofONNX:
             # Session options для оптимизации
             opts = ort.SessionOptions()
             opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-            opts.intra_op_num_threads = 1
-            opts.inter_op_num_threads = 1
+            opts.intra_op_num_threads = 0
+            opts.inter_op_num_threads = 0
             
             self.session = ort.InferenceSession(
                 str(self.model_path),

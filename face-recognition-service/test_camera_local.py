@@ -14,7 +14,6 @@ sys.path.insert(0, '.')
 
 from app.services.face_detector import FaceDetector
 from app.services.liveness.anti_spoof_onnx import AntiSpoofONNX
-from app.services.liveness.preprocess import crop
 
 
 def main():
@@ -46,6 +45,10 @@ def main():
     current_bbox = None  # [x, y, x2, y2] последнего найденного лица
     frame_count = 0
     
+    # Сглаживание: скользящее окно из 3 предсказаний
+    REAL_WINDOW_SIZE = 3
+    prediction_history = []  # список is_real за последние N предсказаний
+    
     # Интервалы
     DETECT_INTERVAL = 10       # Полная детекция раз в 10 кадров
     SPOOF_INTERVAL = 5         # Anti-spoof раз в 5 кадров
@@ -62,7 +65,6 @@ def main():
             break
         
         frame = cv2.flip(frame, 1)
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         h, w = frame.shape[:2]
         
         # === ОПТИМИЗАЦИЯ: детекция только раз в N кадров ===
@@ -96,17 +98,26 @@ def main():
             # === Anti-spoof раз в 5 кадров ===
             if frame_count % SPOOF_INTERVAL == 0:
                 try:
-                    face_crop = crop(frame_rgb, (x, y, x2, y2), bbox_expansion_factor=1.5)
-                    result = anti_spoof.predict(face_crop)
+                    result = anti_spoof.predict(frame, (x, y, x2, y2))
                     
-                    label = f"{'REAL' if result['is_real'] else 'SPOOF'}: {result['liveness_score']:.2f}"
-                    color = (0, 255, 0) if result['is_real'] else (0, 0, 255)
+                    # Скользящее окно: храним последние N результатов
+                    prediction_history.append(result['is_real'])
+                    if len(prediction_history) > REAL_WINDOW_SIZE:
+                        prediction_history.pop(0)
                     
-                    cv2.putText(frame, label, (x, y - 10), 
+                    # REAL только если все N предсказаний REAL
+                    smoothed_real = (len(prediction_history) == REAL_WINDOW_SIZE
+                                     and all(prediction_history))
+                    real_count = sum(prediction_history)
+                    
+                    label = f"{'REAL' if smoothed_real else 'SPOOF'} ({real_count}/{REAL_WINDOW_SIZE})"
+                    color = (0, 255, 0) if smoothed_real else (0, 0, 255)
+                    
+                    cv2.putText(frame, label, (x, y - 10),
                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
                     
-                    print(f"[{time.strftime('%H:%M:%S')}] {'REAL' if result['is_real'] else 'SPOOF'} "
-                          f"(score={result['liveness_score']:.3f})")
+                    print(f"[{time.strftime('%H:%M:%S')}] {'REAL' if smoothed_real else 'SPOOF'} "
+                          f"({real_count}/{REAL_WINDOW_SIZE}, score={result['liveness_score']:.3f})")
                     
                 except Exception as e:
                     print(f"Anti-spoof error: {e}")

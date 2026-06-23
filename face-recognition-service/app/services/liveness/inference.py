@@ -47,8 +47,8 @@ def process_with_logits(logits, logit_threshold):
     Returns:
         dict with is_real, status, logit_diff
     """
-    real_logit = logits[1]
-    spoof_logit = logits[0]
+    real_logit = logits[0]
+    spoof_logit = logits[1]
     logit_diff = real_logit - spoof_logit
     
     is_real = logit_diff >= logit_threshold
