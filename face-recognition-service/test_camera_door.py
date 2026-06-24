@@ -41,11 +41,24 @@ def put_text_unicode(img, text, pos, font_path=None, font_size=16, color=(255, 2
 
 
 from app.services.face_detector import FaceDetector
+from app.services.face_recognizer import FaceRecognizer
 from app.services.liveness.anti_spoof_onnx import AntiSpoofONNX
 
 
 RTSP_URL = "rtsp://admin:eqwew@150.150.150.229/cam/realmonitor?channel=1&subtype=1"
 RECOGNIZE_API = "http://localhost:8000/api/v1/recognize/"
+
+
+def iou(box_a, box_b):
+    x1 = max(box_a[0], box_b[0])
+    y1 = max(box_a[1], box_b[1])
+    x2 = min(box_a[2], box_b[2])
+    y2 = min(box_a[3], box_b[3])
+    inter = max(0, x2 - x1) * max(0, y2 - y1)
+    area_a = (box_a[2] - box_a[0]) * (box_a[3] - box_a[1])
+    area_b = (box_b[2] - box_b[0]) * (box_b[3] - box_b[1])
+    union = area_a + area_b - inter
+    return inter / union if union > 0 else 0
 
 
 def main():
@@ -59,6 +72,9 @@ def main():
     detector = FaceDetector()
     detector.initialize()
     print("✓ Face detector ready")
+
+    recognizer = FaceRecognizer(detector)
+    print("✓ Face recognizer ready")
 
     anti_spoof = AntiSpoofONNX()
     if anti_spoof.is_ready:
@@ -80,24 +96,17 @@ def main():
     fps_cam = cap.get(cv2.CAP_PROP_FPS)
     print(f"✓ Connected ({w}x{h} @ {fps_cam:.0f} fps)")
 
-    # Состояние
-    current_bbox = None
+    # Состояние (per-face)
+    tracks = {}  # track_id -> {...}
+    next_track_id = 0
     frame_count = 0
 
     # Сглаживание
     REAL_WINDOW_SIZE = 5
-    prediction_history = []
-
-    # Распознавание
-    recognition_result = None
-    was_real_before = False
 
     # Motion
-    prev_face_gray = None
-    motion_history = []
     MOTION_WINDOW = 3
     MOTION_THRESHOLD = 1.4
-    is_static = False
 
     # Интервалы
     DETECT_INTERVAL = 10
@@ -127,61 +136,111 @@ def main():
         # Детекция раз в N кадров
         need_detect = (frame_count % DETECT_INTERVAL == 0)
 
-        if need_detect or current_bbox is None:
+        if need_detect or not tracks:
             faces = detector.detect_faces(frame)
+            new_bboxes = [f["bbox"] for f in faces]
 
-            if faces:
-                current_bbox = faces[0]["bbox"]
-            else:
-                current_bbox = None
+            matched = set()
+            track_to_new = {}
+            FACE_MATCH_THRESHOLD = 0.4
 
-        x, y, x2, y2 = 0, 0, 0, 0
-        smoothed_real = False
-        real_count = 0
+            for tid, tr in list(tracks.items()):
+                best_j = -1
+                best_iou = 0.3
+                for j, nb in enumerate(new_bboxes):
+                    if j in matched:
+                        continue
+                    score = iou(tr["bbox"], nb)
+                    if score > best_iou:
+                        best_iou = score
+                        best_j = j
+                if best_j >= 0:
+                    track_to_new[tid] = best_j
 
-        if current_bbox is not None:
-            x, y, x2, y2 = map(int, current_bbox)
+            for tid, best_j in list(track_to_new.items()):
+                tr = tracks[tid]
+                if tr.get("embedding") is not None:
+                    emb = recognizer.generate_embedding(frame)
+                    if emb is not None:
+                        sim = recognizer.compute_similarity(tr["embedding"], emb)
+                        if sim < FACE_MATCH_THRESHOLD:
+                            continue
+                tr["bbox"] = new_bboxes[best_j]
+                tr["last_seen"] = frame_count
+                matched.add(best_j)
+
+            for j, nb in enumerate(new_bboxes):
+                if j not in matched:
+                    emb = recognizer.generate_embedding(frame)
+                    tracks[next_track_id] = {
+                        "bbox": nb,
+                        "last_seen": frame_count,
+                        "embedding": emb,
+                        "prediction_history": [],
+                        "motion_history": [],
+                        "prev_face_gray": None,
+                        "was_real_before": False,
+                        "recognition_result": None,
+                        "is_static": False,
+                    }
+                    next_track_id += 1
+
+            to_del = [tid for tid, tr in tracks.items() if frame_count - tr["last_seen"] > 30]
+            for tid in to_del:
+                del tracks[tid]
+
+        # Обработка каждого лица
+        for tid, tr in list(tracks.items()):
+            if frame_count - tr["last_seen"] > DETECT_INTERVAL:
+                continue
+
+            x, y, x2, y2 = map(int, tr["bbox"])
             x = max(0, x)
             y = max(0, y)
             x2 = min(w, x2)
             y2 = min(h, y2)
+
+            if x2 - x < 10 or y2 - y < 10:
+                continue
 
             # Anti-spoof раз в N кадров
             if frame_count % SPOOF_INTERVAL == 0:
                 try:
                     result = anti_spoof.predict(frame, (x, y, x2, y2))
 
-                    face_roi_gray = cv2.cvtColor(frame[y:y2, x:x2], cv2.COLOR_BGR2GRAY)
-                    face_roi_gray = cv2.resize(face_roi_gray, (64, 64))
+                    face_roi = frame[y:y2, x:x2]
+                    if face_roi.size > 0:
+                        face_roi_gray = cv2.cvtColor(face_roi, cv2.COLOR_BGR2GRAY)
+                        face_roi_gray = cv2.resize(face_roi_gray, (64, 64))
 
-                    if prev_face_gray is not None:
-                        diff = np.mean(np.abs(face_roi_gray.astype(float) - prev_face_gray.astype(float)))
-                        motion_history.append(diff)
-                        if len(motion_history) > MOTION_WINDOW:
-                            motion_history.pop(0)
-                        is_static = (len(motion_history) == MOTION_WINDOW
-                                     and all(m < MOTION_THRESHOLD for m in motion_history))
-                    prev_face_gray = face_roi_gray
+                        if tr["prev_face_gray"] is not None:
+                            diff = np.mean(np.abs(face_roi_gray.astype(float) - tr["prev_face_gray"].astype(float)))
+                            tr["motion_history"].append(diff)
+                            if len(tr["motion_history"]) > MOTION_WINDOW:
+                                tr["motion_history"].pop(0)
+                            tr["is_static"] = (len(tr["motion_history"]) == MOTION_WINDOW
+                                               and all(m < MOTION_THRESHOLD for m in tr["motion_history"]))
+                        tr["prev_face_gray"] = face_roi_gray
 
-                    is_real = result['is_real'] and not is_static
-                    prediction_history.append(is_real)
-                    if len(prediction_history) > REAL_WINDOW_SIZE:
-                        prediction_history.pop(0)
+                    is_real = result['is_real'] and not tr["is_static"]
+                    tr["prediction_history"].append(is_real)
+                    if len(tr["prediction_history"]) > REAL_WINDOW_SIZE:
+                        tr["prediction_history"].pop(0)
 
-                    motion_val = np.mean(motion_history) if motion_history else 0
-                    print(f"[{time.strftime('%H:%M:%S')}] {'REAL' if is_real else 'SPOOF'} "
+                    motion_val = np.mean(tr["motion_history"]) if tr["motion_history"] else 0
+                    print(f"[Track {tid}] {'REAL' if is_real else 'SPOOF'} "
                           f"(score={result['liveness_score']:.3f}, motion={motion_val:.2f})")
                 except Exception as e:
-                    print(f"Anti-spoof error: {e}")
+                    print(f"[Track {tid}] Anti-spoof error: {e}")
 
             # Сглаживание: 4 из 5 REAL (допускаем 1 выброс)
-            smoothed_real = (len(prediction_history) == REAL_WINDOW_SIZE
-                             and sum(prediction_history) >= REAL_WINDOW_SIZE - 1)
-            real_count = sum(prediction_history)
+            smoothed_real = (len(tr["prediction_history"]) == REAL_WINDOW_SIZE
+                             and sum(tr["prediction_history"]) >= REAL_WINDOW_SIZE - 1)
+            real_count = sum(tr["prediction_history"])
 
             # Триггер распознавания: один раз при переходе SPOOF→REAL
-            if smoothed_real and not was_real_before:
-                was_real_before = True
+            if smoothed_real and not tr["was_real_before"]:
+                tr["was_real_before"] = True
                 try:
                     _, jpeg = cv2.imencode('.jpg', frame,
                                            [int(cv2.IMWRITE_JPEG_QUALITY), 80])
@@ -191,35 +250,35 @@ def main():
                         data=json.dumps({"image_base64": b64}).encode(),
                         headers={"Content-Type": "application/json"})
                     with urllib.request.urlopen(req, timeout=10) as resp:
-                        recognition_result = json.loads(resp.read())
-                    print(f"[RECOGNIZE] {recognition_result}")
+                        tr["recognition_result"] = json.loads(resp.read())
+                    print(f"[Track {tid}] RECOGNIZE: {tr['recognition_result']}")
                 except urllib.request.HTTPError as e:
                     body = e.read().decode()
-                    print(f"[RECOGNIZE] HTTP {e.code}: {body}")
-                    recognition_result = {"error": f"HTTP {e.code}"}
+                    print(f"[Track {tid}] RECOGNIZE HTTP {e.code}: {body}")
+                    tr["recognition_result"] = {"error": f"HTTP {e.code}"}
                 except urllib.request.URLError as e:
-                    print(f"[RECOGNIZE] API not reachable: {e}")
-                    recognition_result = {"error": "API not running"}
+                    print(f"[Track {tid}] RECOGNIZE not reachable: {e}")
+                    tr["recognition_result"] = {"error": "API not running"}
                 except Exception as e:
-                    print(f"[RECOGNIZE] Error: {e}")
-                    recognition_result = {"error": str(e)[:30]}
+                    print(f"[Track {tid}] RECOGNIZE error: {e}")
+                    tr["recognition_result"] = {"error": str(e)[:30]}
             elif not smoothed_real:
-                was_real_before = False
-                recognition_result = None
+                tr["was_real_before"] = False
+                tr["recognition_result"] = None
 
             # Отрисовка
             color = (0, 255, 0) if smoothed_real else (0, 0, 255)
             cv2.rectangle(frame, (x, y), (x2, y2), color, 2)
 
-            label = f"{'REAL' if smoothed_real else 'SPOOF'} ({real_count}/{REAL_WINDOW_SIZE})"
-            if is_static:
+            label = f"#{tid} {'REAL' if smoothed_real else 'SPOOF'} ({real_count}/{REAL_WINDOW_SIZE})"
+            if tr["is_static"]:
                 label += " STATIC"
                 color = (0, 165, 255)
             cv2.putText(frame, label, (x, y - 10),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
 
-            if recognition_result:
-                r = recognition_result
+            if tr["recognition_result"]:
+                r = tr["recognition_result"]
                 err = r.get("error", "")
                 if err:
                     cv2.putText(frame, f"API: {err}", (x, y2 + 20),
@@ -233,13 +292,6 @@ def main():
                 else:
                     cv2.putText(frame, "Not recognized", (x, y2 + 20),
                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
-        else:
-            was_real_before = False
-            recognition_result = None
-            is_static = False
-            motion_history.clear()
-            prediction_history.clear()
-            prev_face_gray = None
 
         # FPS
         fps_count += 1
@@ -248,7 +300,7 @@ def main():
             fps = fps_count / elapsed
             fps_count = 0
             fps_time = time.time()
-            cv2.putText(frame, f"FPS: {fps:.1f}", (10, 30),
+            cv2.putText(frame, f"FPS: {fps:.1f} | Faces: {len(tracks)}", (10, 30),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
 
         if not args.no_display:
