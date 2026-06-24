@@ -70,14 +70,21 @@ def main():
     current_bbox = None  # [x, y, x2, y2] последнего найденного лица
     frame_count = 0
     
-    # Сглаживание: скользящее окно из 3 предсказаний
-    REAL_WINDOW_SIZE = 3
+    # Сглаживание: скользящее окно из предсказаний
+    REAL_WINDOW_SIZE = 5
     prediction_history = []  # список is_real за последние N предсказаний
     
     # Распознавание через API (один раз на сессию REAL)
     RECOGNIZE_API = "http://localhost:8000/api/v1/recognize/"
     recognition_result = None
     was_real_before = False  # для отслеживания перехода SPOOF→REAL
+    
+    # Motion-based liveness (для статичных фото на больших экранах)
+    prev_face_gray = None
+    motion_history = []
+    MOTION_WINDOW = 3        # 2 проверки = ~0.33c, быстрее чем 3 REAL
+    MOTION_THRESHOLD = 1.5   # средняя разница пикселей (0 = идеально static)
+    is_static = False        # флаг, что лицо не двигается
     
     # Интервалы
     DETECT_INTERVAL = 10       # Полная детекция раз в 10 кадров
@@ -128,12 +135,28 @@ def main():
             if frame_count % SPOOF_INTERVAL == 0:
                 try:
                     result = anti_spoof.predict(frame, (x, y, x2, y2))
-                    prediction_history.append(result['is_real'])
+                    
+                    # Motion check: сравниваем текущий crop лица с предыдущим
+                    face_roi_gray = cv2.cvtColor(frame[y:y2, x:x2], cv2.COLOR_BGR2GRAY)
+                    face_roi_gray = cv2.resize(face_roi_gray, (64, 64))
+                    
+                    if prev_face_gray is not None:
+                        diff = np.mean(np.abs(face_roi_gray.astype(float) - prev_face_gray.astype(float)))
+                        motion_history.append(diff)
+                        if len(motion_history) > MOTION_WINDOW:
+                            motion_history.pop(0)
+                        is_static = (len(motion_history) == MOTION_WINDOW
+                                     and all(m < MOTION_THRESHOLD for m in motion_history))
+                    prev_face_gray = face_roi_gray
+                    
+                    # Если модель сказала REAL, но motion нулевой — переопределяем на SPOOF
+                    is_real = result['is_real'] and not is_static
+                    prediction_history.append(is_real)
                     if len(prediction_history) > REAL_WINDOW_SIZE:
                         prediction_history.pop(0)
                     
-                    print(f"[{time.strftime('%H:%M:%S')}] {'REAL' if result['is_real'] else 'SPOOF'} "
-                          f"(score={result['liveness_score']:.3f})")
+                    print(f"[{time.strftime('%H:%M:%S')}] {'REAL' if is_real else 'SPOOF'} "
+                          f"(score={result['liveness_score']:.3f}, motion={np.mean(motion_history) if motion_history else 0:.2f})")
                 except Exception as e:
                     print(f"Anti-spoof error: {e}")
             
@@ -153,12 +176,19 @@ def main():
                         RECOGNIZE_API,
                         data=json.dumps({"image_base64": b64}).encode(),
                         headers={"Content-Type": "application/json"})
-                    with urllib.request.urlopen(req, timeout=5) as resp:
+                    with urllib.request.urlopen(req, timeout=10) as resp:
                         recognition_result = json.loads(resp.read())
                     print(f"[RECOGNIZE] {recognition_result}")
+                except urllib.request.HTTPError as e:
+                    body = e.read().decode()
+                    print(f"[RECOGNIZE] HTTP {e.code}: {body}")
+                    recognition_result = {"error": f"HTTP {e.code}"}
+                except urllib.request.URLError as e:
+                    print(f"[RECOGNIZE] API not reachable: {e}")
+                    recognition_result = {"error": "API not running"}
                 except Exception as e:
-                    print(f"[RECOGNIZE] API error: {e}")
-                    recognition_result = {"error": str(e)}
+                    print(f"[RECOGNIZE] Error: {e}")
+                    recognition_result = {"error": str(e)[:30]}
             elif not smoothed_real:
                 was_real_before = False
                 recognition_result = None
@@ -168,14 +198,18 @@ def main():
             cv2.rectangle(frame, (x, y), (x2, y2), color, 2)
             
             label = f"{'REAL' if smoothed_real else 'SPOOF'} ({real_count}/{REAL_WINDOW_SIZE})"
+            if is_static:
+                label += " STATIC"
+                color = (0, 165, 255)  # orange
             cv2.putText(frame, label, (x, y - 10),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
             
             if recognition_result:
                 r = recognition_result
-                if "error" in r:
-                    cv2.putText(frame, "API error", (x, y2 + 20),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                err = r.get("error", "")
+                if err:
+                    cv2.putText(frame, f"API: {err}", (x, y2 + 20),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 255), 1)
                 elif r.get("recognized"):
                     name = r.get('name', '?') or r.get('account_id', '?')
                     put_text_unicode(frame, name, (x, y2 + 20), font_size=18, color=(0, 255, 0))
@@ -188,6 +222,9 @@ def main():
         else:
             was_real_before = False
             recognition_result = None
+            is_static = False
+            motion_history.clear()
+            prev_face_gray = None
             cv2.putText(frame, "No face detected", (10, 30),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
         
