@@ -17,6 +17,26 @@ async def lifespan(app: FastAPI):
     print("Initializing Face Recognition Service...")
     await init_db()
     print("Database initialized")
+    
+    # Прогрев моделей: загружаем сразу, чтобы первый запрос не ждал
+    print("Loading ML models...")
+    try:
+        from app.services.face_detector import FaceDetector
+        from app.services.liveness.anti_spoof_onnx import AntiSpoofONNX
+        
+        detector = FaceDetector()
+        detector.initialize()
+        print("  Face detector ready")
+        
+        anti_spoof = AntiSpoofONNX()
+        if anti_spoof.is_ready:
+            print("  Anti-spoof ready")
+        else:
+            print("  Anti-spoof NOT ready")
+    except Exception as e:
+        print(f"  Model loading error: {e}")
+    
+    print("Service ready")
     yield
     # Остановка
     await close_db()

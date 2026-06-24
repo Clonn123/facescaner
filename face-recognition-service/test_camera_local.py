@@ -83,7 +83,7 @@ def main():
     prev_face_gray = None
     motion_history = []
     MOTION_WINDOW = 3        # 2 проверки = ~0.33c, быстрее чем 3 REAL
-    MOTION_THRESHOLD = 1.5   # средняя разница пикселей (0 = идеально static)
+    MOTION_THRESHOLD = 1.4   # средняя разница пикселей (0 = идеально static)
     is_static = False        # флаг, что лицо не двигается
     
     # Интервалы
@@ -161,8 +161,9 @@ def main():
                     print(f"Anti-spoof error: {e}")
             
             # Сглаживание (на каждом кадре, из истории)
+            # Допускаем 1 выброс: достаточно 4 из 5 REAL
             smoothed_real = (len(prediction_history) == REAL_WINDOW_SIZE
-                             and all(prediction_history))
+                             and sum(prediction_history) >= REAL_WINDOW_SIZE - 1)
             real_count = sum(prediction_history)
             
             # === Триггер распознавания: один раз при переходе SPOOF→REAL ===
@@ -224,6 +225,7 @@ def main():
             recognition_result = None
             is_static = False
             motion_history.clear()
+            prediction_history.clear()
             prev_face_gray = None
             cv2.putText(frame, "No face detected", (10, 30),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
