@@ -92,6 +92,7 @@ async def recognize_face(
         return RecognizeResponse(
             recognized=False,
             face_detected=False,
+            confidence="low",
             processing_time_ms=(time.time() - start_time) * 1000
         )
     
@@ -193,5 +194,6 @@ async def recognize_face(
         liveness_checked=True,
         is_live=True,
         liveness_score=liveness_score,
+        confidence="low",
         processing_time_ms=(time.time() - start_time) * 1000
     )
