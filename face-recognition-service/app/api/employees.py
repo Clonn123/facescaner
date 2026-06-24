@@ -80,11 +80,11 @@ async def register_employee(
     - **account_id**: Уникальный ID аккаунта в HR системе
     - **name**: Имя сотрудника (необязательно)
     - **description**: Описание (необязательно)
-    - **image_base64**: Base64 фото для генерации embedding (необязательно)
+    - **image_base64**: Base64 фото (одно)
+    - **images_base64**: Base64 фото (пачка, до 10) — усредняется в один embedding
     """
     detector = get_face_detector()
     recognizer = get_face_recognizer(detector)
-    anti_spoof = get_anti_spoof()
     storage = StorageService(db)
     
     # Создаём запись сотрудника
@@ -94,76 +94,85 @@ async def register_employee(
         description=request.description
     )
     
-    # Если предоставлено фото, генерируем embedding
-    image = decode_image(request.image_base64)
+    # Собираем все фото: image_base64 + images_base64
+    raw_images = []
+    if request.image_base64:
+        raw_images.append(request.image_base64)
+    if request.images_base64:
+        raw_images.extend(request.images_base64)
     
-    if image is not None:
-        # Детекция лица
-        faces = detector.detect_faces(image)
-        if not faces:
-            raise HTTPException(
-                status_code=400,
-                detail="No face detected in the uploaded photo"
-            )
-        
-        # Берём первое лицо
-        face_info = faces[0]
-        face_image = detector.extract_face(image, face_info)
-        
-        # Оценка качества
-        quality = detector.assess_quality(face_image)
-        if quality["quality"] in ["poor"]:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Photo quality is too low: {quality['quality']}"
-            )
-        
-        # Anti-spoofing НЕ используется для регистрации
-        # Anti-spoof нужен только для real-time camera pipeline
-        
-        # Генерация embedding
-        embedding = recognizer.generate_embedding(image, face_info)
-        if embedding is None:
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to generate face embedding"
-            )
-        
-        # Сохраняем embedding
-        # Если у сотрудника уже есть embedding — усредняем
-        if employee.embedding and any(e != 0.0 for e in employee.embedding):
-            await storage.add_face_to_employee(
-                employee_id=employee.employee_id,
-                new_embedding=embedding
-            )
-        else:
-            await storage.update_embedding(
-                employee_id=employee.employee_id,
-                embedding=embedding,
-                faces_count=1
-            )
-        
-        # Обновляем employee для ответа
-        employee = await storage.get_employee(employee.employee_id)
-        
+    if not raw_images:
         return RegisterEmployeeResponse(
             employee_id=employee.employee_id,
             account_id=request.account_id,
             name=request.name,
-            faces_registered=employee.faces_registered,
-            embedding_dimensions=len(embedding),
-            message="Employee registered successfully" if employee.faces_registered == 1 
-                    else f"Face added to existing employee (total: {employee.faces_registered} faces)"
+            faces_registered=0,
+            embedding_dimensions=0,
+            message="Employee registered. Upload photos to complete registration."
         )
     
-    # Если фото не предоставлено, возвращаем только информацию о регистрации
+    # Генерируем embedding из каждого фото
+    embeddings = []
+    errors = []
+    for i, img_b64 in enumerate(raw_images):
+        image = decode_image(img_b64)
+        if image is None:
+            errors.append(f"photo {i+1}: invalid format")
+            continue
+        
+        faces = detector.detect_faces(image)
+        if not faces:
+            errors.append(f"photo {i+1}: no face detected")
+            continue
+        
+        face_info = faces[0]
+        face_image = detector.extract_face(image, face_info)
+        
+        quality = detector.assess_quality(face_image)
+        if quality["quality"] in ["poor"]:
+            errors.append(f"photo {i+1}: quality too low ({quality['quality']})")
+            continue
+        
+        embedding = recognizer.generate_embedding(image, face_info)
+        if embedding is None:
+            errors.append(f"photo {i+1}: embedding failed")
+            continue
+        
+        embeddings.append(embedding)
+    
+    if not embeddings:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No valid photos. Errors: {'; '.join(errors)}"
+        )
+    
+    # Усредняем embeddings
+    avg_embedding = np.mean(embeddings, axis=0)
+    norm = np.linalg.norm(avg_embedding)
+    if norm > 0:
+        avg_embedding = avg_embedding / norm
+    
+    # Сохраняем
+    faces_count = employee.faces_registered + len(embeddings)
+    await storage.update_embedding(
+        employee_id=employee.employee_id,
+        embedding=avg_embedding,
+        faces_count=faces_count
+    )
+    
+    employee = await storage.get_employee(employee.employee_id)
+    
+    msg_parts = [f"{len(embeddings)} photos processed"]
+    if errors:
+        msg_parts.append(f"{len(errors)} skipped: {'; '.join(errors[:3])}")
+    
     return RegisterEmployeeResponse(
         employee_id=employee.employee_id,
         account_id=request.account_id,
         name=request.name,
-        faces_registered=0,
-        embedding_dimensions=0,
-        message="Employee registered. Please upload a photo to complete registration."
+        faces_registered=employee.faces_registered,
+        embedding_dimensions=len(avg_embedding),
+        message=". ".join(msg_parts)
     )
 
 

@@ -271,6 +271,12 @@
                 <label>Name (optional)</label>
                 <input type="text" id="employeeName" placeholder="e.g., John Doe">
             </div>
+            <div class="form-group">
+                <label>Photos (1-10 files)</label>
+                <input type="file" id="employeePhotos" accept="image/*" multiple 
+                       style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 8px;">
+                <small style="color: #666;">Select multiple JPG/PNG photos. Embeddings will be averaged.</small>
+            </div>
             <button class="btn-secondary" onclick="registerEmployee()" style="width: 100%;">
                 Register Employee
             </button>
@@ -366,9 +372,20 @@
         async function registerEmployee() {
             const accountId = document.getElementById('accountId').value;
             const name = document.getElementById('employeeName').value;
+            const filesInput = document.getElementById('employeePhotos');
             
             if (!accountId) {
                 showResult('error', 'Error', 'Please enter Account ID');
+                return;
+            }
+            
+            if (!filesInput.files.length) {
+                showResult('error', 'Error', 'Please select at least one photo');
+                return;
+            }
+            
+            if (filesInput.files.length > 10) {
+                showResult('error', 'Error', 'Maximum 10 photos allowed');
                 return;
             }
             
@@ -378,11 +395,17 @@
             try {
                 const apiUrl = document.getElementById('apiUrl').value;
                 
-                // Capture current frame as registration photo
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                canvas.getContext('2d').drawImage(video, 0, 0);
-                const base64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+                // Convert all files to base64
+                const imagesBase64 = [];
+                for (const file of filesInput.files) {
+                    const base64 = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => resolve(reader.result.split(',')[1]);
+                        reader.onerror = reject;
+                        reader.readAsDataURL(file);
+                    });
+                    imagesBase64.push(base64);
+                }
                 
                 const response = await fetch(`${apiUrl}/employees/register`, {
                     method: 'POST',
@@ -390,7 +413,7 @@
                     body: JSON.stringify({ 
                         account_id: accountId,
                         name: name,
-                        image_base64: base64
+                        images_base64: imagesBase64
                     })
                 });
                 
@@ -398,7 +421,7 @@
                 
                 if (response.ok) {
                     showResult('success', 'Registration Successful', 
-                        `Employee ${result.employee_id} registered with ${result.faces_registered} face(s)`);
+                        `${result.message}. Employee: ${result.employee_id}`);
                 } else {
                     showResult('error', 'Registration Failed', result.detail || 'Unknown error');
                 }
