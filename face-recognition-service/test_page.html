@@ -10,7 +10,7 @@
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -20,7 +20,7 @@
             align-items: center;
             padding: 20px;
         }
-        
+
         .container {
             background: white;
             border-radius: 20px;
@@ -29,19 +29,19 @@
             max-width: 800px;
             width: 100%;
         }
-        
+
         h1 {
             color: #333;
             margin-bottom: 10px;
             text-align: center;
         }
-        
+
         .subtitle {
             color: #666;
             text-align: center;
             margin-bottom: 30px;
         }
-        
+
         .video-container {
             position: relative;
             width: 100%;
@@ -52,16 +52,16 @@
             box-shadow: 0 10px 30px rgba(0,0,0,0.2);
             background: #000;
         }
-        
+
         video {
             width: 100%;
             display: block;
         }
-        
+
         canvas {
             display: none;
         }
-        
+
         .controls {
             display: flex;
             gap: 15px;
@@ -69,7 +69,7 @@
             margin-bottom: 30px;
             flex-wrap: wrap;
         }
-        
+
         button {
             padding: 12px 30px;
             border: none;
@@ -79,46 +79,57 @@
             cursor: pointer;
             transition: all 0.3s ease;
         }
-        
+
         .btn-primary {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
         }
-        
+
         .btn-primary:hover {
             transform: translateY(-2px);
             box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
         }
-        
+
         .btn-primary:disabled {
             opacity: 0.5;
             cursor: not-allowed;
             transform: none;
         }
-        
+
         .btn-secondary {
             background: #f0f0f0;
             color: #333;
         }
-        
+
         .btn-secondary:hover {
             background: #e0e0e0;
         }
-        
+
+        .btn-danger {
+            background: #ff4757;
+            color: white;
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+
+        .btn-danger:hover {
+            background: #ff3344;
+        }
+
         .result-container {
             background: #f8f9fa;
             border-radius: 15px;
             padding: 25px;
             margin-top: 20px;
         }
-        
+
         .result-header {
             display: flex;
             align-items: center;
             gap: 15px;
             margin-bottom: 20px;
         }
-        
+
         .status-icon {
             width: 50px;
             height: 50px;
@@ -128,69 +139,69 @@
             justify-content: center;
             font-size: 24px;
         }
-        
+
         .status-icon.success {
             background: #d4edda;
             color: #155724;
         }
-        
+
         .status-icon.error {
             background: #f8d7da;
             color: #721c24;
         }
-        
+
         .status-icon.warning {
             background: #fff3cd;
             color: #856404;
         }
-        
+
         .status-icon.info {
             background: #d1ecf1;
             color: #0c5460;
         }
-        
+
         .result-title {
             font-size: 20px;
             font-weight: 600;
             color: #333;
         }
-        
+
         .result-details {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 15px;
             margin-top: 15px;
         }
-        
+
         .detail-item {
             background: white;
             padding: 15px;
             border-radius: 10px;
         }
-        
+
         .detail-label {
             font-size: 12px;
             color: #666;
             text-transform: uppercase;
             margin-bottom: 5px;
         }
-        
+
         .detail-value {
             font-size: 18px;
             font-weight: 600;
             color: #333;
         }
-        
+
         .loading {
             display: none;
             text-align: center;
             padding: 20px;
         }
-        
+
         .loading.active {
             display: block;
         }
-        
+
         .spinner {
             border: 4px solid #f3f3f3;
             border-top: 4px solid #667eea;
@@ -200,30 +211,30 @@
             animation: spin 1s linear infinite;
             margin: 0 auto 15px;
         }
-        
+
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-        
+
         .employee-form {
             background: #f8f9fa;
             border-radius: 15px;
             padding: 25px;
             margin-bottom: 30px;
         }
-        
+
         .form-group {
             margin-bottom: 15px;
         }
-        
+
         .form-group label {
             display: block;
             margin-bottom: 5px;
             color: #333;
             font-weight: 500;
         }
-        
+
         .form-group input {
             width: 100%;
             padding: 10px;
@@ -232,16 +243,16 @@
             font-size: 14px;
             transition: border-color 0.3s;
         }
-        
+
         .form-group input:focus {
             outline: none;
             border-color: #667eea;
         }
-        
+
         .api-url-input {
             margin-bottom: 20px;
         }
-        
+
         .api-url-input input {
             width: 100%;
             padding: 10px;
@@ -249,18 +260,113 @@
             border-radius: 8px;
             font-size: 14px;
         }
+
+        .photo-source-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .photo-source-tabs button {
+            flex: 1;
+            padding: 10px;
+            font-size: 14px;
+            background: #e0e0e0;
+            color: #333;
+        }
+
+        .photo-source-tabs button.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .capture-section {
+            display: none;
+        }
+
+        .capture-section.active {
+            display: block;
+        }
+
+        .captured-photos {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .captured-photo {
+            position: relative;
+            width: 100px;
+            height: 100px;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .captured-photo img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .captured-photo .remove-btn {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            background: rgba(255, 0, 0, 0.8);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            font-size: 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+        }
+
+        .photo-count {
+            color: #666;
+            font-size: 13px;
+            margin-top: 10px;
+        }
+
+        .file-section {
+            display: none;
+        }
+
+        .file-section.active {
+            display: block;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>👤 Face Recognition Service</h1>
+        <h1>Face Recognition Service</h1>
         <p class="subtitle">HR Module - Live Recognition Demo</p>
-        
+
         <div class="api-url-input">
-            <input type="text" id="apiUrl" placeholder="API URL (default: http://localhost:8000/api/v1)" 
+            <input type="text" id="apiUrl" placeholder="API URL (default: http://localhost:8000/api/v1)"
                    value="http://localhost:8000/api/v1">
         </div>
-        
+
+        <div class="video-container">
+            <video id="video" autoplay playsinline></video>
+            <canvas id="canvas"></canvas>
+        </div>
+
+        <div class="controls">
+            <button class="btn-primary" id="startBtn" onclick="startCamera()">
+                Start Camera
+            </button>
+            <button class="btn-primary" id="recognizeBtn" onclick="recognizeFace()" disabled>
+                Recognize Face
+            </button>
+        </div>
+
         <div class="employee-form">
             <h3 style="margin-bottom: 15px;">Register New Employee</h3>
             <div class="form-group">
@@ -271,36 +377,35 @@
                 <label>Name (optional)</label>
                 <input type="text" id="employeeName" placeholder="e.g., John Doe">
             </div>
-            <div class="form-group">
-                <label>Photos (1-10 files)</label>
-                <input type="file" id="employeePhotos" accept="image/*" multiple 
+
+            <div class="photo-source-tabs">
+                <button class="active" onclick="switchPhotoSource('camera')">Camera</button>
+                <button onclick="switchPhotoSource('file')">Upload File</button>
+            </div>
+
+            <div class="capture-section active" id="captureSection">
+                <button class="btn-secondary" id="captureBtn" onclick="capturePhoto()" disabled style="width: 100%;">
+                    Take Photo (0/10)
+                </button>
+                <div class="captured-photos" id="capturedPhotos"></div>
+            </div>
+
+            <div class="file-section" id="fileSection">
+                <input type="file" id="employeePhotos" accept="image/*" multiple
                        style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 8px;">
                 <small style="color: #666;">Select multiple JPG/PNG photos. Embeddings will be averaged.</small>
             </div>
-            <button class="btn-secondary" onclick="registerEmployee()" style="width: 100%;">
+
+            <button class="btn-secondary" onclick="registerEmployee()" style="width: 100%; margin-top: 15px;">
                 Register Employee
             </button>
         </div>
-        
-        <div class="video-container">
-            <video id="video" autoplay playsinline></video>
-            <canvas id="canvas"></canvas>
-        </div>
-        
-        <div class="controls">
-            <button class="btn-primary" id="startBtn" onclick="startCamera()">
-                📷 Start Camera
-            </button>
-            <button class="btn-primary" id="recognizeBtn" onclick="recognizeFace()" disabled>
-                🔍 Recognize Face
-            </button>
-        </div>
-        
+
         <div class="loading" id="loading">
             <div class="spinner"></div>
             <p>Processing...</p>
         </div>
-        
+
         <div class="result-container" id="resultContainer" style="display: none;">
             <div class="result-header">
                 <div class="status-icon" id="statusIcon"></div>
@@ -314,52 +419,104 @@
         let videoStream = null;
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
-        
+        let capturedImages = [];
+        let currentPhotoSource = 'camera';
+
         async function startCamera() {
             try {
-                videoStream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { 
+                videoStream = await navigator.mediaDevices.getUserMedia({
+                    video: {
                         width: { ideal: 640 },
                         height: { ideal: 480 },
                         facingMode: 'user'
-                    } 
+                    }
                 });
                 video.srcObject = videoStream;
-                document.getElementById('startBtn').textContent = '✅ Camera Active';
+                document.getElementById('startBtn').textContent = 'Camera Active';
                 document.getElementById('startBtn').disabled = true;
                 document.getElementById('recognizeBtn').disabled = false;
-                showResult('info', 'Camera Started', 'Camera is active. Click "Recognize Face" to identify.');
+                document.getElementById('captureBtn').disabled = false;
+                showResult('info', 'Camera Started', 'Camera is active. You can now recognize or register faces.');
             } catch (err) {
                 showResult('error', 'Camera Error', `Cannot access camera: ${err.message}`);
             }
         }
-        
+
+        function switchPhotoSource(source) {
+            currentPhotoSource = source;
+            const tabs = document.querySelectorAll('.photo-source-tabs button');
+            tabs.forEach(t => t.classList.remove('active'));
+
+            if (source === 'camera') {
+                tabs[0].classList.add('active');
+                document.getElementById('captureSection').classList.add('active');
+                document.getElementById('fileSection').classList.remove('active');
+            } else {
+                tabs[1].classList.add('active');
+                document.getElementById('captureSection').classList.remove('active');
+                document.getElementById('fileSection').classList.add('active');
+            }
+        }
+
+        function capturePhoto() {
+            if (!videoStream || capturedImages.length >= 10) return;
+
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+
+            const base64 = canvas.toDataURL('image/jpeg', 0.9).split(',')[1];
+            capturedImages.push(base64);
+
+            updateCapturedPreview();
+            updateCaptureButton();
+        }
+
+        function removePhoto(index) {
+            capturedImages.splice(index, 1);
+            updateCapturedPreview();
+            updateCaptureButton();
+        }
+
+        function updateCapturedPreview() {
+            const container = document.getElementById('capturedPhotos');
+            container.innerHTML = capturedImages.map((img, i) => `
+                <div class="captured-photo">
+                    <img src="data:image/jpeg;base64,${img}" alt="Photo ${i + 1}">
+                    <button class="remove-btn" onclick="removePhoto(${i})">x</button>
+                </div>
+            `).join('');
+        }
+
+        function updateCaptureButton() {
+            const btn = document.getElementById('captureBtn');
+            btn.textContent = `Take Photo (${capturedImages.length}/10)`;
+            btn.disabled = capturedImages.length >= 10;
+        }
+
         async function recognizeFace() {
             if (!videoStream) {
                 showResult('error', 'Error', 'Please start the camera first');
                 return;
             }
-            
+
             const loading = document.getElementById('loading');
             loading.classList.add('active');
-            
+
             try {
-                // Capture frame
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
                 canvas.getContext('2d').drawImage(video, 0, 0);
-                
-                // Convert to base64
+
                 const base64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
-                
-                // Send to API
+
                 const apiUrl = document.getElementById('apiUrl').value;
                 const response = await fetch(`${apiUrl}/recognize/`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ image_base64: base64 })
                 });
-                
+
                 const result = await response.json();
                 displayRecognitionResult(result);
             } catch (err) {
@@ -368,35 +525,34 @@
                 loading.classList.remove('active');
             }
         }
-        
+
         async function registerEmployee() {
             const accountId = document.getElementById('accountId').value;
             const name = document.getElementById('employeeName').value;
-            const filesInput = document.getElementById('employeePhotos');
-            
+
             if (!accountId) {
                 showResult('error', 'Error', 'Please enter Account ID');
                 return;
             }
-            
-            if (!filesInput.files.length) {
-                showResult('error', 'Error', 'Please select at least one photo');
-                return;
-            }
-            
-            if (filesInput.files.length > 10) {
-                showResult('error', 'Error', 'Maximum 10 photos allowed');
-                return;
-            }
-            
-            const loading = document.getElementById('loading');
-            loading.classList.add('active');
-            
-            try {
-                const apiUrl = document.getElementById('apiUrl').value;
-                
-                // Convert all files to base64
-                const imagesBase64 = [];
+
+            let imagesBase64 = [];
+
+            if (currentPhotoSource === 'camera') {
+                if (capturedImages.length === 0) {
+                    showResult('error', 'Error', 'Please capture at least one photo from camera');
+                    return;
+                }
+                imagesBase64 = [...capturedImages];
+            } else {
+                const filesInput = document.getElementById('employeePhotos');
+                if (!filesInput.files.length) {
+                    showResult('error', 'Error', 'Please select at least one photo');
+                    return;
+                }
+                if (filesInput.files.length > 10) {
+                    showResult('error', 'Error', 'Maximum 10 photos allowed');
+                    return;
+                }
                 for (const file of filesInput.files) {
                     const base64 = await new Promise((resolve, reject) => {
                         const reader = new FileReader();
@@ -406,22 +562,31 @@
                     });
                     imagesBase64.push(base64);
                 }
-                
+            }
+
+            const loading = document.getElementById('loading');
+            loading.classList.add('active');
+
+            try {
+                const apiUrl = document.getElementById('apiUrl').value;
                 const response = await fetch(`${apiUrl}/employees/register`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
+                    body: JSON.stringify({
                         account_id: accountId,
                         name: name,
                         images_base64: imagesBase64
                     })
                 });
-                
+
                 const result = await response.json();
-                
+
                 if (response.ok) {
-                    showResult('success', 'Registration Successful', 
+                    showResult('success', 'Registration Successful',
                         `${result.message}. Employee: ${result.employee_id}`);
+                    capturedImages = [];
+                    updateCapturedPreview();
+                    updateCaptureButton();
                 } else {
                     showResult('error', 'Registration Failed', result.detail || 'Unknown error');
                 }
@@ -431,7 +596,7 @@
                 loading.classList.remove('active');
             }
         }
-        
+
         function displayRecognitionResult(result) {
             if (result.recognized) {
                 showResult('success', 'Employee Identified', {
@@ -440,7 +605,7 @@
                     'Account ID': result.account_id,
                     'Similarity': `${(result.similarity * 100).toFixed(1)}%`,
                     'Confidence': result.confidence,
-                    'Liveness': result.is_live ? '✅ Live' : '❌ Spoof',
+                    'Liveness': result.is_live ? 'Live' : 'Spoof',
                     'Processing Time': `${result.processing_time_ms.toFixed(0)}ms`
                 });
             } else {
@@ -451,33 +616,33 @@
                     message = 'Possible spoof detected';
                 }
                 showResult('warning', message, {
-                    'Face Detected': result.face_detected ? '✅ Yes' : '❌ No',
-                    'Liveness': result.liveness_checked ? 
-                        (result.is_live ? '✅ Live' : '❌ Spoof') : 'N/A',
+                    'Face Detected': result.face_detected ? 'Yes' : 'No',
+                    'Liveness': result.liveness_checked ?
+                        (result.is_live ? 'Live' : 'Spoof') : 'N/A',
                     'Processing Time': `${result.processing_time_ms.toFixed(0)}ms`
                 });
             }
         }
-        
+
         function showResult(type, title, details) {
             const container = document.getElementById('resultContainer');
             const icon = document.getElementById('statusIcon');
             const titleEl = document.getElementById('resultTitle');
             const detailsEl = document.getElementById('resultDetails');
-            
+
             container.style.display = 'block';
-            
+
             const icons = {
-                success: '✅',
-                error: '❌',
-                warning: '⚠️',
-                info: 'ℹ️'
+                success: '+',
+                error: '!',
+                warning: '!',
+                info: 'i'
             };
-            
+
             icon.className = `status-icon ${type}`;
-            icon.textContent = icons[type] || 'ℹ️';
+            icon.textContent = icons[type] || 'i';
             titleEl.textContent = title;
-            
+
             if (typeof details === 'string') {
                 detailsEl.innerHTML = `<div class="detail-item">
                     <div class="detail-value">${details}</div>

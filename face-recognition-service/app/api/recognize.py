@@ -86,8 +86,18 @@ async def recognize_face(
     if image is None:
         raise HTTPException(status_code=400, detail="No image provided")
     
-    # 1. Детекция лица
-    faces = detector.detect_faces(image)
+    # 1. Детекция лица (или используем переданный bbox)
+    if request.bbox:
+        face_info = {
+            "bbox": request.bbox,
+            "kps": [],
+            "det_score": 1.0,
+            "landmarks": None
+        }
+        faces = [face_info]
+    else:
+        faces = detector.detect_faces(image)
+    
     if not faces:
         return RecognizeResponse(
             recognized=False,
@@ -96,13 +106,12 @@ async def recognize_face(
             processing_time_ms=(time.time() - start_time) * 1000
         )
     
-    # Берём самое большое лицо (первое)
+    # Берём лицо (переданное или первое из детекции)
     face_info = faces[0]
     
-    # 2. Anti-spoof using bbox (key: use crop() with 1.5x expansion)
+    # 2. Anti-spoof using bbox
     x1, y1, x2, y2 = map(int, face_info["bbox"])
     
-    # Predict using bbox - anti_spoof will call crop() internally
     result = anti_spoof.predict_from_bbox(image, (x1, y1, x2, y2))
     liveness_score = result["liveness_score"]
     is_live = result["is_real"]
@@ -123,7 +132,7 @@ async def recognize_face(
     # 3. Aligned face для recognition
     face_image = detector.extract_face(image, face_info)
     
-    # 4. Генерация embedding
+    # 4. Генерация embedding (передаём face_info чтобы не детектить заново)
     embedding = recognizer.generate_embedding(image, face_info)
     if embedding is None:
         raise HTTPException(

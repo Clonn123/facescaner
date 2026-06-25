@@ -38,8 +38,8 @@ def put_text_unicode(img, text, pos, font_path=None, font_size=16, color=(255, 2
     img[:] = cv2.cvtColor(np.asarray(img_pil), cv2.COLOR_RGB2BGR)
 
 from app.services.face_detector import FaceDetector
-from app.services.face_recognizer import FaceRecognizer
 from app.services.liveness.anti_spoof_onnx import AntiSpoofONNX
+from app.services.liveness.flicker_detector import FlickerDetector
 
 
 def iou(box_a, box_b):
@@ -60,9 +60,6 @@ def main():
     detector = FaceDetector()
     detector.initialize()
     print("✓ Face detector ready")
-
-    recognizer = FaceRecognizer(detector)
-    print("✓ Face recognizer ready")
     
     anti_spoof = AntiSpoofONNX()
     if anti_spoof.is_ready:
@@ -92,13 +89,13 @@ def main():
 
     # Motion
     MOTION_WINDOW = 3
-    MOTION_THRESHOLD = 1.4
+    MOTION_THRESHOLD = 1.0
 
     # Распознавание
     RECOGNIZE_API = "http://localhost:8000/api/v1/recognize/"
 
     # Интервалы
-    DETECT_INTERVAL = 10       # Полная детекция раз в 10 кадров
+    DETECT_INTERVAL = 20       # Полная детекция раз в 20 кадров (~660ms при 30fps)
     SPOOF_INTERVAL = 5         # Anti-spoof раз в 5 кадров
     
     fps_count = 0
@@ -121,10 +118,9 @@ def main():
         if need_detect or not tracks:
             faces = detector.detect_faces(frame)
             new_bboxes = [f["bbox"] for f in faces]
+            new_scores = [f["det_score"] for f in faces]
 
             matched = set()
-            track_to_new = {}
-            FACE_MATCH_THRESHOLD = 0.4
 
             for tid, tr in list(tracks.items()):
                 best_j = -1
@@ -137,33 +133,40 @@ def main():
                         best_iou = score
                         best_j = j
                 if best_j >= 0:
-                    track_to_new[tid] = best_j
+                    new_score = new_scores[best_j]
+                    old_score = tr.get("avg_det_score", new_score)
+                    tr["bbox"] = new_bboxes[best_j]
+                    tr["last_seen"] = frame_count
+                    tr["avg_det_score"] = old_score * 0.7 + new_score * 0.3
 
-            for tid, best_j in list(track_to_new.items()):
-                tr = tracks[tid]
-                if tr.get("embedding") is not None:
-                    emb = recognizer.generate_embedding(frame)
-                    if emb is not None:
-                        sim = recognizer.compute_similarity(tr["embedding"], emb)
-                        if sim < FACE_MATCH_THRESHOLD:
-                            continue
-                tr["bbox"] = new_bboxes[best_j]
-                tr["last_seen"] = frame_count
-                matched.add(best_j)
+                    if tr["was_real_before"] and old_score - new_score > 0.25:
+                        tr["prediction_history"] = []
+                        tr["motion_history"] = []
+                        tr["prev_face_gray"] = None
+                        tr["was_real_before"] = False
+                        tr["recognition_result"] = None
+                        tr["is_static"] = False
+                        tr["flicker_detector"].reset()
+                        tr["flicker_score"] = 0.0
+                        tr["_force_spoof"] = True
+
+                    matched.add(best_j)
 
             for j, nb in enumerate(new_bboxes):
                 if j not in matched:
-                    emb = recognizer.generate_embedding(frame)
                     tracks[next_track_id] = {
                         "bbox": nb,
                         "last_seen": frame_count,
-                        "embedding": emb,
                         "prediction_history": [],
                         "motion_history": [],
                         "prev_face_gray": None,
                         "was_real_before": False,
                         "recognition_result": None,
                         "is_static": False,
+                        "avg_det_score": new_scores[j],
+                        "_force_spoof": False,
+                        "flicker_detector": FlickerDetector(window_size=30, min_samples=15),
+                        "flicker_score": 0.0,
                     }
                     next_track_id += 1
 
@@ -172,7 +175,7 @@ def main():
                 del tracks[tid]
 
         # === Обработка каждого лица ===
-        for tid, tr in list(tracks.items()):
+        for idx, tr in enumerate(list(tracks.values())):
             if frame_count - tr["last_seen"] > DETECT_INTERVAL:
                 continue
 
@@ -185,36 +188,47 @@ def main():
             if x2 - x < 10 or y2 - y < 10:
                 continue
 
-            cv2.rectangle(frame, (x, y), (x2, y2), (0, 255, 0), 2)
+            cv2.rectangle(frame, (x, y), (x2, y2), (0, 255, 255), 1)
 
-            # === Anti-spoof раз в 5 кадров ===
-            if frame_count % SPOOF_INTERVAL == 0:
+            # === Motion (каждый кадр) ===
+            face_roi = frame[y:y2, x:x2]
+            frame_time_ms = (time.time() - frame_start) * 1000
+            if face_roi.size > 0 and frame_time_ms < 50:
+                face_roi_gray = cv2.cvtColor(face_roi, cv2.COLOR_BGR2GRAY)
+                face_roi_gray = cv2.resize(face_roi_gray, (64, 64))
+
+                if tr["prev_face_gray"] is not None:
+                    diff = np.mean(np.abs(face_roi_gray.astype(float) - tr["prev_face_gray"].astype(float)))
+                    tr["motion_history"].append(diff)
+                    if len(tr["motion_history"]) > MOTION_WINDOW:
+                        tr["motion_history"].pop(0)
+                    tr["is_static"] = (len(tr["motion_history"]) == MOTION_WINDOW
+                                       and all(m < MOTION_THRESHOLD for m in tr["motion_history"]))
+
+                tr["prev_face_gray"] = face_roi_gray
+            elif face_roi.size > 0:
+                # Frame took too long — reset to avoid stale comparison
+                tr["prev_face_gray"] = None
+
+            # === Flicker detection (каждый кадр) ===
+            tr["flicker_score"] = tr["flicker_detector"].update(face_roi)
+
+            # === Anti-spoof раз в N кадров (или принудительно после сброса) ===
+            force = tr.pop("_force_spoof", False)
+            if frame_count % SPOOF_INTERVAL == 0 or force:
                 try:
-                    result = anti_spoof.predict(frame, (x, y, x2, y2))
+                    face_crop_for_antispoof = frame[y:y2, x:x2]
+                    result = anti_spoof.predict(face_crop_for_antispoof)
 
-                    face_roi = frame[y:y2, x:x2]
-                    if face_roi.size > 0:
-                        face_roi_gray = cv2.cvtColor(face_roi, cv2.COLOR_BGR2GRAY)
-                        face_roi_gray = cv2.resize(face_roi_gray, (64, 64))
-
-                        if tr["prev_face_gray"] is not None:
-                            diff = np.mean(np.abs(face_roi_gray.astype(float) - tr["prev_face_gray"].astype(float)))
-                            tr["motion_history"].append(diff)
-                            if len(tr["motion_history"]) > MOTION_WINDOW:
-                                tr["motion_history"].pop(0)
-                            tr["is_static"] = (len(tr["motion_history"]) == MOTION_WINDOW
-                                               and all(m < MOTION_THRESHOLD for m in tr["motion_history"]))
-                        tr["prev_face_gray"] = face_roi_gray
-
-                    is_real = result['is_real'] and not tr["is_static"]
+                    is_real = result['is_real'] and not tr["is_static"] and tr["flicker_score"] < 0.5
                     tr["prediction_history"].append(is_real)
                     if len(tr["prediction_history"]) > REAL_WINDOW_SIZE:
                         tr["prediction_history"].pop(0)
 
-                    print(f"[Track {tid}] {'REAL' if is_real else 'SPOOF'} "
-                          f"(score={result['liveness_score']:.3f}, motion={np.mean(tr['motion_history']) if tr['motion_history'] else 0:.2f})")
+                    print(f"[Track] {'REAL' if is_real else 'SPOOF'} "
+                          f"(score={result['liveness_score']:.3f}, motion={np.mean(tr['motion_history']) if tr['motion_history'] else 0:.2f}, flicker={tr['flicker_score']:.3f})")
                 except Exception as e:
-                    print(f"[Track {tid}] Anti-spoof error: {e}")
+                    print(f"Anti-spoof error: {e}")
 
             smoothed_real = (len(tr["prediction_history"]) == REAL_WINDOW_SIZE
                              and sum(tr["prediction_history"]) >= REAL_WINDOW_SIZE - 1)
@@ -226,22 +240,26 @@ def main():
                     _, jpeg = cv2.imencode('.jpg', frame,
                                            [int(cv2.IMWRITE_JPEG_QUALITY), 80])
                     b64 = base64.b64encode(jpeg).decode('utf-8')
+                    payload = {
+                        "image_base64": b64,
+                        "bbox": [float(x), float(y), float(x2), float(y2)]
+                    }
                     req = urllib.request.Request(
                         RECOGNIZE_API,
-                        data=json.dumps({"image_base64": b64}).encode(),
+                        data=json.dumps(payload).encode(),
                         headers={"Content-Type": "application/json"})
                     with urllib.request.urlopen(req, timeout=10) as resp:
                         tr["recognition_result"] = json.loads(resp.read())
-                    print(f"[Track {tid}] RECOGNIZE: {tr['recognition_result']}")
+                    print(f"[Track] RECOGNIZE: {tr['recognition_result']}")
                 except urllib.request.HTTPError as e:
                     body = e.read().decode()
-                    print(f"[Track {tid}] RECOGNIZE HTTP {e.code}: {body}")
+                    print(f"[Track] RECOGNIZE HTTP {e.code}: {body}")
                     tr["recognition_result"] = {"error": f"HTTP {e.code}"}
                 except urllib.request.URLError as e:
-                    print(f"[Track {tid}] RECOGNIZE not reachable: {e}")
+                    print(f"[Track] RECOGNIZE not reachable: {e}")
                     tr["recognition_result"] = {"error": "API not running"}
                 except Exception as e:
-                    print(f"[Track {tid}] RECOGNIZE error: {e}")
+                    print(f"[Track] RECOGNIZE error: {e}")
                     tr["recognition_result"] = {"error": str(e)[:30]}
             elif not smoothed_real:
                 tr["was_real_before"] = False
@@ -250,10 +268,12 @@ def main():
             color = (0, 255, 0) if smoothed_real else (0, 0, 255)
             cv2.rectangle(frame, (x, y), (x2, y2), color, 2)
 
-            label = f"#{tid} {'REAL' if smoothed_real else 'SPOOF'} ({real_count}/{REAL_WINDOW_SIZE})"
+            label = f"{'REAL' if smoothed_real else 'SPOOF'} ({real_count}/{REAL_WINDOW_SIZE})"
             if tr["is_static"]:
                 label += " STATIC"
                 color = (0, 165, 255)
+            if tr["flicker_score"] > 0.5:
+                label += f" FLICKER({tr['flicker_score']:.2f})"
             cv2.putText(frame, label, (x, y - 10),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 

@@ -18,27 +18,56 @@ class FaceRecognizer:
         
         Args:
             image: BGR изображение (полный кадр)
-            face_info: Информация о лице (из detect_faces). Если None — берётся первое лицо.
+            face_info: Информация о лице (из detect_faces). Если None — детектим заново.
             
         Returns:
             Numpy array embedding или None
         """
         try:
-            # Используем detector.app, который уже загружен
-            faces = self.detector.app.get(image)
-            if faces:
+            if face_info is not None:
+                faces = self.detector.app.get(image)
+                if not faces:
+                    return None
+                # Находим лицо с максимальным IoU с переданным bbox
+                target_bbox = face_info["bbox"]
+                best_face = None
+                best_iou = -1
+                for face in faces:
+                    fb = face.bbox.tolist()
+                    score = self._iou(target_bbox, fb)
+                    if score > best_iou:
+                        best_iou = score
+                        best_face = face
+                if best_face is None or best_iou < 0.3:
+                    return None
+                emb = best_face.embedding
+            else:
+                faces = self.detector.app.get(image)
+                if not faces:
+                    return None
                 emb = faces[0].embedding
-                # Нормализуем embedding
-                norm = np.linalg.norm(emb)
-                if norm > 0:
-                    return emb / norm
-                return emb
-            return None
+            
+            # Нормализуем embedding
+            norm = np.linalg.norm(emb)
+            if norm > 0:
+                return emb / norm
+            return emb
         except Exception as e:
             print(f"Error generating embedding: {e}")
             import traceback
             traceback.print_exc()
             return None
+
+    def _iou(self, box_a, box_b) -> float:
+        x1 = max(box_a[0], box_b[0])
+        y1 = max(box_a[1], box_b[1])
+        x2 = min(box_a[2], box_b[2])
+        y2 = min(box_a[3], box_b[3])
+        inter = max(0, x2 - x1) * max(0, y2 - y1)
+        area_a = (box_a[2] - box_a[0]) * (box_a[3] - box_a[1])
+        area_b = (box_b[2] - box_b[0]) * (box_b[3] - box_b[1])
+        union = area_a + area_b - inter
+        return inter / union if union > 0 else 0
 
     def compute_similarity(self, emb1: np.ndarray, emb2: np.ndarray) -> float:
         """
