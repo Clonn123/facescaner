@@ -346,7 +346,7 @@ def main():
                         cv2.putText(frame, f"API: {err}", (x, y2 + 16),
                                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1)
                 elif r.get("recognized"):
-                    name = r.get('name', '?') or r.get('account_id', '?')
+                    name = r.get('name', '?') or r.get('user_id', '?')
                     put_text_unicode(frame, name, (x, y2 + 16), font_size=16, color=(0, 255, 0))
                     sim = r.get("similarity", 0)
                     cv2.putText(frame, f"match: {sim:.2f}", (x, y2 + 36),

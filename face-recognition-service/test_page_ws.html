@@ -305,15 +305,15 @@
             const base64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
             
             const apiUrl = 'http://localhost:8000/api/v1';
-            const response = await fetch(`${apiUrl}/employees/register`, {
+            const response = await fetch(`${apiUrl}/users/register`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ account_id: accountId, name: name, image_base64: base64 })
+                body: JSON.stringify({ user_id: accountId, name: name, image_base64: base64 })
             });
             
             const result = await response.json();
             if (response.ok) {
-                alert('Employee registered: ' + result.employee_id);
+                alert('User registered: ' + result.user_id);
             } else {
                 alert('Registration failed: ' + result.detail);
             }

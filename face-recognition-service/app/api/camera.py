@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import async_session_factory
 from app.services.model_singletons import get_detector, get_anti_spoof
 from app.services.face_recognizer import FaceRecognizer
-from app.models.database_models import Employee
+from app.models.database_models import UserBiometric
 from app.core.config import get_settings
 
 settings = get_settings()
@@ -20,6 +20,7 @@ router = APIRouter(prefix="/ws", tags=["WebSocket"])
 
 
 def get_face_recognizer(detector=Depends(get_detector)):
+    """Singleton распознавателя лиц."""
     if not hasattr(get_face_recognizer, "_recognizer"):
         get_face_recognizer._recognizer = FaceRecognizer(detector)
     return get_face_recognizer._recognizer
@@ -34,19 +35,19 @@ def decode_base64_image(base64_str: str) -> np.ndarray:
     return cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
 
-async def get_all_employees(db: AsyncSession):
-    """Получение всех сотрудников для распознавания."""
-    stmt = select(Employee.employee_id, Employee.name, Employee.embedding).where(
-        Employee.embedding.isnot(None)
+async def get_all_users(db: AsyncSession):
+    """Получение всех пользователей для распознавания."""
+    stmt = select(UserBiometric.user_id, UserBiometric.name, UserBiometric.embedding).where(
+        UserBiometric.embedding.isnot(None)
     )
     result = await db.execute(stmt)
     rows = result.all()
     
     candidates = []
-    for employee_id, name, embedding_list in rows:
+    for user_id, name, embedding_list in rows:
         if embedding_list:
             embedding = np.array(embedding_list)
-            candidates.append((employee_id, name, embedding))
+            candidates.append((user_id, name, embedding))
     
     return candidates
 
@@ -69,17 +70,18 @@ async def camera_endpoint(websocket: WebSocket):
     liveness_buffer = []
     BUFFER_SIZE = 5
     
-    # Кэш сотрудников
+    # Кэш пользователей (обновляется раз в 60 секунд)
     cached_employees = None
     cache_ttl = 0
     cache_lock = asyncio.Lock()
     
     async def get_cached_employees():
+        """Получение кэшированного списка пользователей."""
         nonlocal cached_employees, cache_ttl
         async with cache_lock:
             if cached_employees is None or time.time() > cache_ttl:
                 async with async_session_factory() as db:
-                    cached_employees = await get_all_employees(db)
+                    cached_employees = await get_all_users(db)
                     cache_ttl = time.time() + 60  # Кэш на 60 секунд
             return cached_employees
     
@@ -89,6 +91,7 @@ async def camera_endpoint(websocket: WebSocket):
             
             message = json.loads(data)
             
+            # Принимаем только кадры
             if message.get("type") != "frame":
                 continue
             
@@ -110,19 +113,19 @@ async def camera_endpoint(websocket: WebSocket):
             
             face_info = faces[0]
             
-            # 2. Anti-spoof using bbox (crop with 1.5x expansion)
+            # 2. Anti-spoof проверка (crop с 1.5x расширением)
             x1, y1, x2, y2 = map(int, face_info["bbox"])
             
-            # Predict using bbox
             result = anti_spoof.predict_from_bbox(image, (x1, y1, x2, y2))
             liveness_score = result["liveness_score"]
             is_live = result["is_real"]
             
             print(f"[LIVENESS] score={liveness_score:.3f} is_real={is_live}")
             
+            # Добавляем в буфер для сглаживания
             liveness_buffer.append(liveness_score)
             
-            # Temporal smoothing
+            # Temporal smoothing: усредняем по последним N кадрам
             if len(liveness_buffer) > BUFFER_SIZE:
                 liveness_buffer.pop(0)
             avg_liveness = float(np.mean(liveness_buffer))
@@ -142,15 +145,12 @@ async def camera_endpoint(websocket: WebSocket):
                 })
                 continue
             
-            # 3. Aligned face для recognition
-            face_image = detector.extract_face(image, face_info)
-            
-            # 4. Генерация embedding
+            # 3. Генерация embedding
             embedding = recognizer.generate_embedding(image, face_info)
             if embedding is None:
                 continue
             
-            # 5. Поиск среди сотрудников
+            # 4. Поиск среди пользователей
             candidates = await get_cached_employees()
             
             if not candidates:
@@ -166,11 +166,11 @@ async def camera_endpoint(websocket: WebSocket):
                 })
                 continue
             
-            # 6. Поиск лучшего совпадения
+            # 5. Поиск лучшего совпадения
             match = recognizer.find_best_match(embedding, candidates)
             
             if match:
-                employee_id, name, similarity = match
+                user_id, name, similarity = match
                 
                 await websocket.send_json({
                     "type": "status",
@@ -179,7 +179,7 @@ async def camera_endpoint(websocket: WebSocket):
                     "is_live": True,
                     "liveness_score": avg_liveness,
                     "recognized": True,
-                    "employee_id": employee_id,
+                    "user_id": user_id,
                     "name": name,
                     "similarity": float(similarity),
                     "confidence": recognizer.get_confidence_label(similarity),

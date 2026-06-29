@@ -32,6 +32,15 @@ class Settings(BaseSettings):
         env_file = ".env"
         case_sensitive = True
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # postgres:// → postgresql://
+        if self.DATABASE_URL.startswith("postgres://"):
+            self.DATABASE_URL = self.DATABASE_URL.replace("postgres://", "postgresql://", 1)
+        # Добавляем asyncpg драйвер если нет
+        if self.DATABASE_URL.startswith("postgresql://") and "+asyncpg" not in self.DATABASE_URL:
+            self.DATABASE_URL = self.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
+
 
 @lru_cache()
 def get_settings() -> Settings:

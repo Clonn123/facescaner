@@ -368,9 +368,9 @@
         </div>
 
         <div class="employee-form">
-            <h3 style="margin-bottom: 15px;">Register New Employee</h3>
+            <h3 style="margin-bottom: 15px;">Register New User</h3>
             <div class="form-group">
-                <label>Account ID</label>
+                <label>User ID</label>
                 <input type="text" id="accountId" placeholder="e.g., emp_001">
             </div>
             <div class="form-group">
@@ -531,7 +531,7 @@
             const name = document.getElementById('employeeName').value;
 
             if (!accountId) {
-                showResult('error', 'Error', 'Please enter Account ID');
+                showResult('error', 'Error', 'Please enter User ID');
                 return;
             }
 
@@ -569,11 +569,11 @@
 
             try {
                 const apiUrl = document.getElementById('apiUrl').value;
-                const response = await fetch(`${apiUrl}/employees/register`, {
+                const response = await fetch(`${apiUrl}/users/register`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        account_id: accountId,
+                        user_id: accountId,
                         name: name,
                         images_base64: imagesBase64
                     })
@@ -583,7 +583,7 @@
 
                 if (response.ok) {
                     showResult('success', 'Registration Successful',
-                        `${result.message}. Employee: ${result.employee_id}`);
+                        `${result.message}. User: ${result.user_id}`);
                     capturedImages = [];
                     updateCapturedPreview();
                     updateCaptureButton();
@@ -599,17 +599,16 @@
 
         function displayRecognitionResult(result) {
             if (result.recognized) {
-                showResult('success', 'Employee Identified', {
+                showResult('success', 'User Identified', {
                     'Name': result.name || 'Unknown',
-                    'Employee ID': result.employee_id,
-                    'Account ID': result.account_id,
+                    'User ID': result.user_id,
                     'Similarity': `${(result.similarity * 100).toFixed(1)}%`,
                     'Confidence': result.confidence,
                     'Liveness': result.is_live ? 'Live' : 'Spoof',
                     'Processing Time': `${result.processing_time_ms.toFixed(0)}ms`
                 });
             } else {
-                let message = 'Employee not found';
+                let message = 'User not found';
                 if (!result.face_detected) {
                     message = 'No face detected';
                 } else if (result.liveness_checked && !result.is_live) {

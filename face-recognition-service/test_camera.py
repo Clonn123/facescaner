@@ -121,7 +121,7 @@ async def test_camera():
                         y_offset += 30
                     
                     if data.get("recognized"):
-                        cv2.putText(frame, f"ID: {data.get('employee_id', '')}", 
+                        cv2.putText(frame, f"ID: {data.get('user_id', '')}", 
                                    (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                         y_offset += 30
                         cv2.putText(frame, f"Name: {data.get('name', '')}", 

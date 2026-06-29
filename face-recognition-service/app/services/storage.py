@@ -2,195 +2,175 @@ import uuid
 import numpy as np
 from typing import List, Optional, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete
+from sqlalchemy import select
 from datetime import datetime
 
-from app.models.database_models import Employee, LivenessLog
-from app.models.schemas import EmployeeResponse
+from app.models.database_models import UserBiometric
+from app.models.schemas import UserResponse
 
 
 class StorageService:
-    """Сервис хранения данных сотрудников."""
+    """Сервис хранения биометрических данных пользователей."""
 
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def register_employee(self, account_id: str, name: Optional[str] = None,
-                               description: Optional[str] = None) -> Employee:
+    async def register_user(self, user_id: str, name: Optional[str] = None) -> UserBiometric:
         """
-        Регистрация или обновление сотрудника.
-        Если сотрудник уже существует — возвращает его.
+        Регистрация или обновление пользователя.
+        Если пользователь уже существует — обновляет имя и возвращает его.
         """
-        # Проверяем, существует ли сотрудник
-        stmt = select(Employee).where(Employee.account_id == account_id)
+        stmt = select(UserBiometric).where(UserBiometric.user_id == user_id)
         result = await self.db.execute(stmt)
-        employee = result.scalar_one_or_none()
+        user = result.scalar_one_or_none()
         
-        if employee:
-            # Обновляем информацию если нужно
+        if user:
+            # Обновляем имя если нужно
             if name:
-                employee.name = name
-            if description:
-                employee.description = description
+                user.name = name
             await self.db.commit()
-            await self.db.refresh(employee)
-            return employee
+            await self.db.refresh(user)
+            return user
         
-        # Создаём нового сотрудника
-        employee_id = str(uuid.uuid4())
-        
-        employee = Employee(
-            employee_id=employee_id,
-            account_id=account_id,
+        # Создаём нового пользователя с пустым embedding
+        user = UserBiometric(
+            user_id=user_id,
             name=name,
-            description=description,
-            embedding=[0.0] * 512,  # Инициализируем нулями
+            embedding=[0.0] * 512,  # инициализируем нулями
             faces_registered=0
         )
         
-        self.db.add(employee)
+        self.db.add(user)
         await self.db.commit()
-        await self.db.refresh(employee)
+        await self.db.refresh(user)
+        return user
 
-        return employee
-
-    async def update_embedding(self, employee_id: str, embedding: np.ndarray,
-                               faces_count: int = 1) -> Optional[Employee]:
+    async def update_embedding(self, user_id: str, embedding: np.ndarray,
+                               faces_count: int = 1) -> Optional[UserBiometric]:
         """
-        Обновление embedding сотрудника.
+        Обновление embedding пользователя.
         
         Args:
-            employee_id: ID сотрудника
-            embedding: Массив embedding
+            user_id: ID пользователя
+            embedding: Массив embedding (512 измерений)
             faces_count: Количество зарегистрированных лиц
-            
-        Returns:
-            Обновлённый Employee или None
         """
-        stmt = select(Employee).where(Employee.employee_id == employee_id)
+        stmt = select(UserBiometric).where(UserBiometric.user_id == user_id)
         result = await self.db.execute(stmt)
-        employee = result.scalar_one_or_none()
+        user = result.scalar_one_or_none()
         
-        if not employee:
+        if not user:
             return None
         
         # Сохраняем embedding как массив floats
-        employee.embedding = embedding.tolist()
-        employee.embedding_dim = len(embedding)
-        employee.faces_registered = faces_count
-        employee.updated_at = datetime.utcnow()
+        user.embedding = embedding.tolist()
+        user.embedding_dim = len(embedding)
+        user.faces_registered = faces_count
+        user.updated_at = datetime.utcnow()
         
         await self.db.commit()
-        await self.db.refresh(employee)
-        
-        return employee
+        await self.db.refresh(user)
+        return user
 
-    async def add_face_to_employee(self, employee_id: str, 
-                                   new_embedding: np.ndarray) -> Optional[Employee]:
+    async def add_face_to_user(self, user_id: str,
+                                new_embedding: np.ndarray) -> Optional[UserBiometric]:
         """
-        Добавление нового face embedding к существующему сотруднику.
+        Добавление нового face embedding к существующему пользователю.
         Усредняет новый embedding с существующим.
         
         Args:
-            employee_id: ID сотрудника
+            user_id: ID пользователя
             new_embedding: Новый embedding
-            
-        Returns:
-            Обновлённый Employee или None
         """
-        stmt = select(Employee).where(Employee.employee_id == employee_id)
+        stmt = select(UserBiometric).where(UserBiometric.user_id == user_id)
         result = await self.db.execute(stmt)
-        employee = result.scalar_one_or_none()
+        user = result.scalar_one_or_none()
         
-        if not employee or not employee.embedding:
+        if not user or not user.embedding:
             return None
         
-        # Получаем существующий embedding как массив
-        existing_emb = np.array(employee.embedding, dtype=np.float32)
+        # Получаем существующий embedding как numpy массив
+        existing_emb = np.array(user.embedding, dtype=np.float32)
         
         # Усредняем два embedding
         averaged = (existing_emb + new_embedding) / 2.0
         
-        employee.embedding = averaged.tolist()
-        employee.faces_registered += 1
-        employee.updated_at = datetime.utcnow()
+        user.embedding = averaged.tolist()
+        user.faces_registered += 1
+        user.updated_at = datetime.utcnow()
         
         await self.db.commit()
-        await self.db.refresh(employee)
-        
-        return employee
+        await self.db.refresh(user)
+        return user
 
-    async def get_all_employees_for_recognition(self) -> List[Tuple[str, np.ndarray]]:
+    async def get_all_users_for_recognition(self) -> List[Tuple[str, np.ndarray]]:
         """
-        Получение всех сотрудников для распознавания.
+        Получение всех пользователей для распознавания.
         
         Returns:
-            Список кортежей (employee_id, embedding)
+            Список кортежей (user_id, embedding)
         """
-        stmt = select(Employee.employee_id, Employee.embedding).where(
-            Employee.embedding.isnot(None)
+        stmt = select(UserBiometric.user_id, UserBiometric.embedding).where(
+            UserBiometric.embedding.isnot(None)
         )
         result = await self.db.execute(stmt)
         rows = result.all()
         
         candidates = []
-        for employee_id, embedding_list in rows:
+        for user_id, embedding_list in rows:
             if embedding_list:
                 embedding = np.array(embedding_list)
-                candidates.append((employee_id, embedding))
+                candidates.append((user_id, embedding))
         
         return candidates
 
-    async def get_employee(self, employee_id: str) -> Optional[EmployeeResponse]:
-        """Получение информации о сотруднике."""
-        stmt = select(Employee).where(Employee.employee_id == employee_id)
+    async def get_user(self, user_id: str) -> Optional[UserResponse]:
+        """Получение информации о пользователе."""
+        stmt = select(UserBiometric).where(UserBiometric.user_id == user_id)
         result = await self.db.execute(stmt)
-        employee = result.scalar_one_or_none()
+        user = result.scalar_one_or_none()
         
-        if not employee:
+        if not user:
             return None
         
-        return EmployeeResponse(
-            employee_id=employee.employee_id,
-            account_id=employee.account_id,
-            name=employee.name,
-            description=employee.description,
-            faces_registered=employee.faces_registered,
-            created_at=employee.created_at,
-            updated_at=employee.updated_at
+        return UserResponse(
+            user_id=user.user_id,
+            name=user.name,
+            faces_registered=user.faces_registered,
+            last_auth_time=user.last_auth_time,
+            last_auth_device=user.last_auth_device,
+            created_at=user.created_at,
+            updated_at=user.updated_at
         )
 
-    async def get_employee_by_account_id(self, account_id: str) -> Optional[Employee]:
-        """Получение сотрудника по account_id."""
-        stmt = select(Employee).where(Employee.account_id == account_id)
+    async def delete_user(self, user_id: str) -> bool:
+        """Удаление пользователя."""
+        stmt = select(UserBiometric).where(UserBiometric.user_id == user_id)
         result = await self.db.execute(stmt)
-        return result.scalar_one_or_none()
-
-    async def delete_employee(self, employee_id: str) -> bool:
-        """Удаление сотрудника."""
-        stmt = select(Employee).where(Employee.employee_id == employee_id)
-        result = await self.db.execute(stmt)
-        employee = result.scalar_one_or_none()
+        user = result.scalar_one_or_none()
         
-        if not employee:
+        if not user:
             return False
         
-        await self.db.delete(employee)
+        await self.db.delete(user)
         await self.db.commit()
         return True
 
-    async def log_liveness(self, employee_id: Optional[str], account_id: Optional[str],
-                          liveness_score: float, is_real: bool,
-                          source: Optional[str] = None, ip_address: Optional[str] = None):
-        """Логирование проверки живого присутствия."""
-        log = LivenessLog(
-            employee_id=employee_id,
-            account_id=account_id,
-            liveness_score=liveness_score,
-            is_real=1 if is_real else 0,
-            source=source,
-            ip_address=ip_address
-        )
+    async def update_auth_info(self, user_id: str, device: Optional[str] = None):
+        """
+        Обновление информации об авторизации.
+        Вызывается при успешном распознавании.
         
-        self.db.add(log)
-        await self.db.commit()
+        Args:
+            user_id: ID пользователя
+            device: Идентификатор устройства (опционально)
+        """
+        stmt = select(UserBiometric).where(UserBiometric.user_id == user_id)
+        result = await self.db.execute(stmt)
+        user = result.scalar_one_or_none()
+        
+        if user:
+            user.last_auth_time = datetime.utcnow()
+            if device:
+                user.last_auth_device = device
+            await self.db.commit()

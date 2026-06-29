@@ -24,10 +24,10 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/face_recognition
-      FACE_RECOGNITION_THRESHOLD: "0.35"
-      FACE_DETECTION_THRESHOLD: "0.5"
-      LIVENESS_THRESHOLD: "0.7"
+      - DATABASE_URL
+      - FACE_RECOGNITION_THRESHOLD
+      - FACE_DETECTION_THRESHOLD
+      - LIVENESS_THRESHOLD
     depends_on:
       postgres:
         condition: service_healthy

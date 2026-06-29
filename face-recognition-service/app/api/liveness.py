@@ -2,21 +2,12 @@ import base64
 import cv2
 import numpy as np
 import time
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException
 
-from app.services.anti_spoof import AntiSpoof
+from app.services.model_singletons import get_anti_spoof
 from app.models.schemas import LivenessVerifyRequest, LivenessVerifyResponse
 
 router = APIRouter(prefix="/liveness", tags=["Liveness"])
-
-
-def get_anti_spoof():
-    """Глобальный экземпляр anti-spoof."""
-    if not hasattr(get_anti_spoof, "_spoof"):
-        spoof = AntiSpoof()
-        spoof.initialize()
-        get_anti_spoof._spoof = spoof
-    return get_anti_spoof._spoof
 
 
 def decode_image(image_base64: str) -> np.ndarray:
@@ -38,7 +29,6 @@ async def verify_liveness(request: LivenessVerifyRequest):
     Определяет, является ли лицо реальным или это фото/видео на экране.
     
     - **image_base64**: Base64 encoded изображение
-    - **image_url**: URL изображения (альтернатива)
     
     Возвращает liveness_score и is_real.
     """
@@ -56,12 +46,12 @@ async def verify_liveness(request: LivenessVerifyRequest):
         raise HTTPException(status_code=400, detail="Invalid image format")
     
     # Проверка живого присутствия
-    result = anti_spoof.verify_liveness(image)
+    result = anti_spoof.predict(image)
     
     return LivenessVerifyResponse(
         is_real=result["is_real"],
         liveness_score=result["liveness_score"],
-        confidence=result["confidence"],
-        face_detected=result["face_detected"],
+        confidence="high" if result["liveness_score"] > 0.8 else "medium" if result["liveness_score"] > 0.5 else "low",
+        face_detected=True,
         processing_time_ms=(time.time() - start_time) * 1000
     )

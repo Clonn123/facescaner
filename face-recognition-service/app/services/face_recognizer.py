@@ -98,19 +98,19 @@ class FaceRecognizer:
         
         Args:
             query_embedding: Запрос embedding
-            candidates: Список кортежей (employee_id, embedding)
+            candidates: Список кортежей (user_id, embedding)
             
         Returns:
-            Кортеж (employee_id, similarity) или None если нет совпадений
+            Кортеж (user_id, similarity) или None если нет совпадений
         """
         best_match = None
         best_similarity = -1.0
         
-        for employee_id, candidate_emb in candidates:
+        for user_id, candidate_emb in candidates:
             similarity = self.compute_similarity(query_embedding, candidate_emb)
             if similarity > best_similarity:
                 best_similarity = similarity
-                best_match = employee_id
+                best_match = user_id
         
         if best_match and best_similarity >= self.threshold:
             return (best_match, best_similarity)

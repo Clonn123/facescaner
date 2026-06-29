@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from app.core.config import get_settings
 from app.core.database import init_db, close_db
-from app.api import employees, recognize, liveness, camera
+from app.api import users, recognize, liveness, camera
 from app.models.schemas import HealthResponse
 
 settings = get_settings()
@@ -47,7 +47,7 @@ app.add_middleware(
 )
 
 # Подключение маршрутов
-app.include_router(employees.router, prefix="/api/v1")
+app.include_router(users.router, prefix="/api/v1")
 app.include_router(recognize.router, prefix="/api/v1")
 app.include_router(liveness.router, prefix="/api/v1")
 app.include_router(camera.router)
