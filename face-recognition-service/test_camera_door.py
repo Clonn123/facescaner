@@ -47,6 +47,7 @@ from app.services.liveness.flicker_detector import FlickerDetector
 
 RTSP_URL = "rtsp://admin:eqwew@150.150.150.229/cam/realmonitor?channel=1&subtype=1"
 RECOGNIZE_API = "http://localhost:8000/api/v1/recognize/"
+RECOGNIZE_RETRY_DELAY = 5
 
 
 def iou(box_a, box_b):
@@ -166,6 +167,7 @@ def main():
                         tr["is_static"] = False
                         tr["flicker_detector"].reset()
                         tr["flicker_score"] = 0.0
+                        tr["last_recognize_time"] = 0.0
                         tr["_force_spoof"] = True
 
                     matched.add(best_j)
@@ -185,6 +187,7 @@ def main():
                         "_force_spoof": False,
                         "flicker_detector": FlickerDetector(window_size=30, min_samples=15),
                         "flicker_score": 0.0,
+                        "last_recognize_time": 0.0,
                     }
                     next_track_id += 1
 
@@ -248,9 +251,19 @@ def main():
                              and sum(tr["prediction_history"]) >= REAL_WINDOW_SIZE - 1)
             real_count = sum(tr["prediction_history"])
 
-            # Триггер распознавания: один раз при переходе SPOOF→REAL
-            if smoothed_real and not tr["was_real_before"]:
+            need_retry = False
+            if tr["recognition_result"]:
+                r = tr["recognition_result"]
+                is_error = r.get("error")
+                is_not_recognized = not r.get("recognized")
+                time_since = time.time() - tr["last_recognize_time"]
+                if (is_error or is_not_recognized) and time_since > RECOGNIZE_RETRY_DELAY:
+                    need_retry = True
+
+            if (smoothed_real and not tr["was_real_before"]) or need_retry:
                 tr["was_real_before"] = True
+                tr["last_recognize_time"] = time.time()
+                tr["recognition_result"] = None
                 try:
                     _, jpeg = cv2.imencode('.jpg', frame,
                                            [int(cv2.IMWRITE_JPEG_QUALITY), 80])
@@ -297,8 +310,13 @@ def main():
                 r = tr["recognition_result"]
                 err = r.get("error", "")
                 if err:
-                    cv2.putText(frame, f"API: {err}", (x, y2 + 16),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1)
+                    time_left = RECOGNIZE_RETRY_DELAY - (time.time() - tr["last_recognize_time"])
+                    if time_left > 0:
+                        cv2.putText(frame, f"Retry in {time_left:.0f}s", (x, y2 + 16),
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 165, 255), 1)
+                    else:
+                        cv2.putText(frame, f"API: {err}", (x, y2 + 16),
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1)
                 elif r.get("recognized"):
                     name = r.get('name', '?') or r.get('account_id', '?')
                     put_text_unicode(frame, name, (x, y2 + 16), font_size=16, color=(0, 255, 0))
@@ -306,8 +324,13 @@ def main():
                     cv2.putText(frame, f"match: {sim:.2f}", (x, y2 + 36),
                                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 1)
                 else:
-                    cv2.putText(frame, "Not recognized", (x, y2 + 16),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1)
+                    time_left = RECOGNIZE_RETRY_DELAY - (time.time() - tr["last_recognize_time"])
+                    if time_left > 0:
+                        cv2.putText(frame, f"Not found, retry in {time_left:.0f}s", (x, y2 + 16),
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 165, 255), 1)
+                    else:
+                        cv2.putText(frame, "Not recognized", (x, y2 + 16),
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1)
 
         # FPS
         fps_count += 1
