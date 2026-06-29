@@ -11,10 +11,21 @@ import sys
 import time
 import json
 import base64
+import os
 import argparse
 import urllib.request
 import cv2
 import numpy as np
+
+# Загрузка .env файла
+_env_path = os.path.join(os.path.dirname(__file__), '.env')
+if os.path.exists(_env_path):
+    with open(_env_path) as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#') and '=' in line:
+                k, v = line.split('=', 1)
+                os.environ.setdefault(k.strip(), v.strip())
 
 sys.path.insert(0, '.')
 
@@ -48,6 +59,8 @@ from app.services.liveness.flicker_detector import FlickerDetector
 RTSP_URL = "rtsp://admin:eqwew@150.150.150.229/cam/realmonitor?channel=1&subtype=1"
 RECOGNIZE_API = "http://localhost:8000/api/v1/recognize/"
 RECOGNIZE_RETRY_DELAY = 5
+DOOR_CMD_URL = "http://150.150.150.138/cmd.cgi?psw=23das^Ds&cmd=REL,2,0,3"
+DOOR_ENABLED = os.environ.get("DOOR_ENABLED", "false").lower() == "true"
 
 
 def iou(box_a, box_b):
@@ -93,6 +106,7 @@ def main():
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps_cam = cap.get(cv2.CAP_PROP_FPS)
     print(f"✓ Connected ({w}x{h} @ {fps_cam:.0f} fps)")
+    print(f"Door control: {'ENABLED' if DOOR_ENABLED else 'DISABLED'}\n")
 
     # Состояние (per-face)
     tracks = {}  # track_id -> {...}
@@ -168,6 +182,7 @@ def main():
                         tr["flicker_detector"].reset()
                         tr["flicker_score"] = 0.0
                         tr["last_recognize_time"] = 0.0
+                        tr["door_opened"] = False
                         tr["_force_spoof"] = True
 
                     matched.add(best_j)
@@ -188,6 +203,7 @@ def main():
                         "flicker_detector": FlickerDetector(window_size=30, min_samples=15),
                         "flicker_score": 0.0,
                         "last_recognize_time": 0.0,
+                        "door_opened": False,
                     }
                     next_track_id += 1
 
@@ -259,6 +275,18 @@ def main():
                 time_since = time.time() - tr["last_recognize_time"]
                 if (is_error or is_not_recognized) and time_since > RECOGNIZE_RETRY_DELAY:
                     need_retry = True
+
+            # Открытие двери при успешном распознавании
+            r = tr.get("recognition_result")
+            if r and r.get("recognized") and not tr.get("door_opened") and DOOR_ENABLED:
+                tr["door_opened"] = True
+                try:
+                    req = urllib.request.Request(DOOR_CMD_URL)
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        door_resp = resp.read().decode().strip()
+                    print(f"[Track] DOOR: {door_resp}")
+                except Exception as e:
+                    print(f"[Track] DOOR error: {e}")
 
             if (smoothed_real and not tr["was_real_before"]) or need_retry:
                 tr["was_real_before"] = True

@@ -21,12 +21,10 @@ settings = get_settings()
 
 router = APIRouter(prefix="/employees", tags=["Employees"])
 
-
 def get_face_recognizer(detector=Depends(get_detector)):
     if not hasattr(get_face_recognizer, "_recognizer"):
         get_face_recognizer._recognizer = FaceRecognizer(detector)
     return get_face_recognizer._recognizer
-
 
 def decode_image(image_base64: str) -> Optional[np.ndarray]:
     """Декодирование изображения из base64."""
@@ -148,7 +146,6 @@ async def register_employee(
         message=". ".join(msg_parts)
     )
 
-
 @router.get("/{employee_id}", response_model=EmployeeResponse)
 async def get_employee(employee_id: str, db: AsyncSession = Depends(get_db)):
     """Получение информации о сотруднике."""
@@ -159,7 +156,6 @@ async def get_employee(employee_id: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Employee not found")
     
     return employee
-
 
 @router.delete("/{employee_id}")
 async def delete_employee(employee_id: str, db: AsyncSession = Depends(get_db)):

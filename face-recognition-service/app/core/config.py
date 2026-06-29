@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
 
+    # Door control
+    DOOR_ENABLED: bool = False
+
     # CORS
     CORS_ORIGINS: str = "http://localhost,http://localhost:3000,http://localhost:8080"
 
