@@ -9,9 +9,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import async_session_factory
-from app.services.face_detector import FaceDetector
+from app.services.model_singletons import get_detector, get_anti_spoof
 from app.services.face_recognizer import FaceRecognizer
-from app.services.liveness.anti_spoof_onnx import AntiSpoofONNX
 from app.models.database_models import Employee
 from app.core.config import get_settings
 
@@ -20,29 +19,10 @@ settings = get_settings()
 router = APIRouter(prefix="/ws", tags=["WebSocket"])
 
 
-def get_face_detector():
-    """Глобальный экземпляр детектора."""
-    if not hasattr(get_face_detector, "_detector"):
-        detector = FaceDetector()
-        detector.initialize()
-        get_face_detector._detector = detector
-    return get_face_detector._detector
-
-
-def get_face_recognizer(detector=Depends(get_face_detector)):
-    """Глобальный экземпляр распознавателя."""
+def get_face_recognizer(detector=Depends(get_detector)):
     if not hasattr(get_face_recognizer, "_recognizer"):
-        recognizer = FaceRecognizer(detector)
-        get_face_recognizer._recognizer = recognizer
+        get_face_recognizer._recognizer = FaceRecognizer(detector)
     return get_face_recognizer._recognizer
-
-
-def get_anti_spoof():
-    """Глобальный экземпляр anti-spoof."""
-    if not hasattr(get_anti_spoof, "_spoof"):
-        spoof = AntiSpoofONNX()
-        get_anti_spoof._spoof = spoof
-    return get_anti_spoof._spoof
 
 
 def decode_base64_image(base64_str: str) -> np.ndarray:
@@ -81,7 +61,7 @@ async def camera_endpoint(websocket: WebSocket):
     """
     await websocket.accept()
     
-    detector = get_face_detector()
+    detector = get_detector()
     recognizer = get_face_recognizer(detector)
     anti_spoof = get_anti_spoof()
     

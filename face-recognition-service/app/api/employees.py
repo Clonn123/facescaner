@@ -7,9 +7,8 @@ from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.services.face_detector import FaceDetector
+from app.services.model_singletons import get_detector, get_anti_spoof
 from app.services.face_recognizer import FaceRecognizer
-from app.services.liveness.anti_spoof_onnx import AntiSpoofONNX
 from app.services.storage import StorageService
 from app.models.schemas import (
     RegisterEmployeeRequest,
@@ -23,36 +22,10 @@ settings = get_settings()
 router = APIRouter(prefix="/employees", tags=["Employees"])
 
 
-def get_face_detector():
-    """Глобальный экземпляр детектора."""
-    if not hasattr(get_face_detector, "_detector"):
-        detector = FaceDetector()
-        detector.initialize()
-        get_face_detector._detector = detector
-    return get_face_detector._detector
-
-
-def get_anti_spoof():
-    """Глобальный экземпляр anti-spoof (singleton)."""
-    if not hasattr(get_anti_spoof, "_spoof"):
-        spoof = AntiSpoofONNX()
-        get_anti_spoof._spoof = spoof
-    return get_anti_spoof._spoof
-
-def get_face_recognizer(detector=Depends(get_face_detector)):
-    """Глобальный экземпляр распознавателя."""
+def get_face_recognizer(detector=Depends(get_detector)):
     if not hasattr(get_face_recognizer, "_recognizer"):
-        recognizer = FaceRecognizer(detector)
-        get_face_recognizer._recognizer = recognizer
+        get_face_recognizer._recognizer = FaceRecognizer(detector)
     return get_face_recognizer._recognizer
-
-
-def get_anti_spoof():
-    """Глобальный экземпляр anti-spoof (singleton)."""
-    if not hasattr(get_anti_spoof, "_spoof"):
-        spoof = AntiSpoofONNX()
-        get_anti_spoof._spoof = spoof
-    return get_anti_spoof._spoof
 
 
 def decode_image(image_base64: str) -> Optional[np.ndarray]:
@@ -83,7 +56,7 @@ async def register_employee(
     - **image_base64**: Base64 фото (одно)
     - **images_base64**: Base64 фото (пачка, до 10) — усредняется в один embedding
     """
-    detector = get_face_detector()
+    detector = get_detector()
     recognizer = get_face_recognizer(detector)
     storage = StorageService(db)
     

@@ -8,9 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.services.face_detector import FaceDetector
+from app.services.model_singletons import get_detector, get_anti_spoof
 from app.services.face_recognizer import FaceRecognizer
-from app.services.liveness.anti_spoof_onnx import AntiSpoofONNX
 from app.services.storage import StorageService
 from app.models.schemas import RecognizeRequest, RecognizeResponse
 from app.models.database_models import Employee
@@ -21,29 +20,10 @@ settings = get_settings()
 router = APIRouter(prefix="/recognize", tags=["Recognition"])
 
 
-def get_face_detector():
-    """Глобальный экземпляр детектора."""
-    if not hasattr(get_face_detector, "_detector"):
-        detector = FaceDetector()
-        detector.initialize()
-        get_face_detector._detector = detector
-    return get_face_detector._detector
-
-
-def get_face_recognizer(detector=Depends(get_face_detector)):
-    """Глобальный экземпляр распознавателя."""
+def get_face_recognizer(detector=Depends(get_detector)):
     if not hasattr(get_face_recognizer, "_recognizer"):
-        recognizer = FaceRecognizer(detector)
-        get_face_recognizer._recognizer = recognizer
+        get_face_recognizer._recognizer = FaceRecognizer(detector)
     return get_face_recognizer._recognizer
-
-
-def get_anti_spoof():
-    """Глобальный экземпляр anti-spoof."""
-    if not hasattr(get_anti_spoof, "_spoof"):
-        spoof = AntiSpoofONNX()
-        get_anti_spoof._spoof = spoof
-    return get_anti_spoof._spoof
 
 
 def decode_image(request: RecognizeRequest) -> Optional[np.ndarray]:
@@ -75,7 +55,7 @@ async def recognize_face(
     """
     start_time = time.time()
     
-    detector = get_face_detector()
+    detector = get_detector()
     recognizer = get_face_recognizer(detector)
     anti_spoof = get_anti_spoof()
     storage = StorageService(db)

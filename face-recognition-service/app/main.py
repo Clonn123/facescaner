@@ -13,32 +13,19 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Управление жизненным циклом приложения."""
-    # Запуск
     print("Initializing Face Recognition Service...")
     await init_db()
     print("Database initialized")
     
     # Прогрев моделей: загружаем сразу, чтобы первый запрос не ждал
-    print("Loading ML models...")
     try:
-        from app.services.face_detector import FaceDetector
-        from app.services.liveness.anti_spoof_onnx import AntiSpoofONNX
-        
-        detector = FaceDetector()
-        detector.initialize()
-        print("  Face detector ready")
-        
-        anti_spoof = AntiSpoofONNX()
-        if anti_spoof.is_ready:
-            print("  Anti-spoof ready")
-        else:
-            print("  Anti-spoof NOT ready")
+        from app.services.model_singletons import warmup
+        warmup()
     except Exception as e:
         print(f"  Model loading error: {e}")
     
     print("Service ready")
     yield
-    # Остановка
     await close_db()
     print("Face Recognition Service stopped")
 
@@ -69,14 +56,10 @@ app.include_router(camera.router)
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """Проверка работоспособности сервиса."""
-    from app.services.face_detector import FaceDetector
-    from app.services.anti_spoof import AntiSpoof
+    from app.services.model_singletons import get_detector, get_anti_spoof
     
-    detector = FaceDetector()
-    detector.initialize()
-    
-    anti_spoof = AntiSpoof()
-    anti_spoof.initialize()
+    detector = get_detector()
+    anti_spoof = get_anti_spoof()
     
     return HealthResponse(
         status="healthy",
