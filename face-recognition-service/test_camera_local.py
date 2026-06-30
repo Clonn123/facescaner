@@ -105,11 +105,10 @@ def main():
     # Распознавание
     RECOGNIZE_API = "http://localhost:8000/api/v1/recognize/"
     RECOGNIZE_RETRY_DELAY = 5  # секунд между попытками
+    CAMERA_URL = os.environ.get("CAMERA_URL", "local")
 
     # Дверь
-    DOOR_CMD_URL = "http://150.150.150.138/cmd.cgi?psw=23das^Ds&cmd=REL,2,0,3"
-    DOOR_ENABLED = os.environ.get("DOOR_ENABLED", "false").lower() == "true"
-    print(f"Door control: {'ENABLED' if DOOR_ENABLED else 'DISABLED'}\n")
+    print(f"Camera URL: {CAMERA_URL}\n")
 
     # Интервалы
     DETECT_INTERVAL = 20       # Полная детекция раз в 20 кадров (~660ms при 30fps)
@@ -166,7 +165,6 @@ def main():
                         tr["flicker_detector"].reset()
                         tr["flicker_score"] = 0.0
                         tr["last_recognize_time"] = 0.0
-                        tr["door_opened"] = False
                         tr["_force_spoof"] = True
 
                     matched.add(best_j)
@@ -187,7 +185,6 @@ def main():
                         "flicker_detector": FlickerDetector(window_size=30, min_samples=15),
                         "flicker_score": 0.0,
                         "last_recognize_time": 0.0,
-                        "door_opened": False,
                     }
                     next_track_id += 1
 
@@ -264,18 +261,6 @@ def main():
                 if (is_error or is_not_recognized) and time_since > RECOGNIZE_RETRY_DELAY:
                     need_retry = True
 
-            # Открытие двери при успешном распознавании
-            r = tr.get("recognition_result")
-            if r and r.get("recognized") and not tr.get("door_opened") and DOOR_ENABLED:
-                tr["door_opened"] = True
-                try:
-                    req = urllib.request.Request(DOOR_CMD_URL)
-                    with urllib.request.urlopen(req, timeout=5) as resp:
-                        door_resp = resp.read().decode().strip()
-                    print(f"[Track] DOOR: {door_resp}")
-                except Exception as e:
-                    print(f"[Track] DOOR error: {e}")
-
             if (smoothed_real and not tr["was_real_before"]) or need_retry:
                 tr["was_real_before"] = True
                 tr["last_recognize_time"] = time.time()
@@ -286,7 +271,8 @@ def main():
                     b64 = base64.b64encode(jpeg).decode('utf-8')
                     payload = {
                         "image_base64": b64,
-                        "bbox": [float(x), float(y), float(x2), float(y2)]
+                        "bbox": [float(x), float(y), float(x2), float(y2)],
+                        "camera_url": CAMERA_URL,
                     }
                     req = urllib.request.Request(
                         RECOGNIZE_API,

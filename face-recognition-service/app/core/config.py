@@ -24,6 +24,9 @@ class Settings(BaseSettings):
 
     # Door control
     DOOR_ENABLED: bool = False
+    BACKEND_API_BASE_URL: str = "http://localhost:3000"
+    HR_API_KEY: str = ""
+    CAMERA_URL: str = "local"
 
     # CORS
     CORS_ORIGINS: str = "http://localhost,http://localhost:3000,http://localhost:8080"

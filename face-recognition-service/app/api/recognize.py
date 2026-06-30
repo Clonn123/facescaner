@@ -1,7 +1,9 @@
 import base64
 import cv2
+import json
 import numpy as np
 import time
+import urllib.request
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,8 +12,8 @@ from app.core.database import get_db
 from app.services.model_singletons import get_detector, get_anti_spoof
 from app.services.face_recognizer import FaceRecognizer
 from app.services.storage import StorageService
+from app.services.cache import get_door_id_by_camera
 from app.models.schemas import RecognizeRequest, RecognizeResponse
-from app.models.database_models import UserBiometric
 from app.core.config import get_settings
 
 settings = get_settings()
@@ -133,6 +135,29 @@ async def recognize_face(
         await storage.update_auth_info(user_id)
         
         user = await storage.get_user(user_id)
+
+        # === Door Access: ищем дверь в кеше → POST на бэкенд ===
+        print(f"[DoorAccess] camera_url={request.camera_url}, HR_API_KEY={'SET' if settings.HR_API_KEY else 'EMPTY'}")
+        if request.camera_url and settings.HR_API_KEY:
+            try:
+                door_id = await get_door_id_by_camera(request.camera_url)
+
+                if door_id:
+                    payload = json.dumps({"userId": user_id, "doorId": door_id}).encode()
+                    req = urllib.request.Request(
+                        f"{settings.BACKEND_API_BASE_URL}/door-access/open-door",
+                        data=payload,
+                        headers={
+                            "Content-Type": "application/json",
+                            "hr-api-key": settings.HR_API_KEY,
+                        },
+                    )
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        print(f"[DoorAccess] OK: door={door_id}, user={user_id}, status={resp.status}")
+                else:
+                    print(f"[DoorAccess] No door found for camera_url={request.camera_url}")
+            except Exception as e:
+                print(f"[DoorAccess] Error: {e}")
         
         return RecognizeResponse(
             recognized=True,

@@ -28,6 +28,12 @@ services:
       - FACE_RECOGNITION_THRESHOLD
       - FACE_DETECTION_THRESHOLD
       - LIVENESS_THRESHOLD
+      - BACKEND_API_BASE_URL
+      - HR_API_KEY
+      - CAMERA_URL
+      - DOOR_ENABLED
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy

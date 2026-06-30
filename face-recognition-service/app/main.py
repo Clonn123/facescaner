@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+import asyncio
 
 from app.core.config import get_settings
 from app.core.database import init_db, close_db
@@ -24,8 +25,24 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"  Model loading error: {e}")
     
+    # Кеш дверей: загружаем + запускаем фоновое обновление
+    cache_task = None
+    if settings.HR_API_KEY:
+        try:
+            from app.services.cache import refresh_door_cache, start_cache_refresh_loop
+            from app.core.database import async_session_factory
+            async with async_session_factory() as db:
+                await refresh_door_cache(db)
+            cache_task = asyncio.create_task(start_cache_refresh_loop())
+            print("Door cache started")
+        except Exception as e:
+            print(f"Door cache init error: {e}")
+    
     print("Service ready")
     yield
+    
+    if cache_task:
+        cache_task.cancel()
     await close_db()
     print("Face Recognition Service stopped")
 
