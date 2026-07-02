@@ -1,13 +1,12 @@
 import base64
 import cv2
-import json
+import uuid
 import numpy as np
 import time
 import urllib.request
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.core.database import get_db
 from app.services.model_singletons import get_detector, get_anti_spoof
 from app.services.face_recognizer import FaceRecognizer
@@ -143,12 +142,26 @@ async def recognize_face(
                 door_id = await get_door_id_by_camera(request.camera_url)
 
                 if door_id:
-                    payload = json.dumps({"userId": user_id, "doorId": door_id}).encode()
+                    _, jpeg = cv2.imencode('.jpg', image, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+                    photo_bytes = jpeg.tobytes()
+
+                    boundary = uuid.uuid4().hex
+                    body = b""
+                    for field, value in [("userId", user_id), ("doorId", door_id)]:
+                        body += f"--{boundary}\r\n".encode()
+                        body += f'Content-Disposition: form-data; name="{field}"\r\n\r\n'.encode()
+                        body += f"{value}\r\n".encode()
+                    body += f"--{boundary}\r\n".encode()
+                    body += b'Content-Disposition: form-data; name="photo"; filename="frame.jpg"\r\n'
+                    body += b"Content-Type: image/jpeg\r\n\r\n"
+                    body += photo_bytes
+                    body += f"\r\n--{boundary}--\r\n".encode()
+
                     req = urllib.request.Request(
                         f"{settings.BACKEND_API_BASE_URL}/door-access/open-door",
-                        data=payload,
+                        data=body,
                         headers={
-                            "Content-Type": "application/json",
+                            "Content-Type": f"multipart/form-data; boundary={boundary}",
                             "hr-api-key": settings.HR_API_KEY,
                         },
                     )
