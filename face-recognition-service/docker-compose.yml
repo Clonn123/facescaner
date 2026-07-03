@@ -1,23 +1,6 @@
 version: '3.8'
 
 services:
-  # PostgreSQL база данных
-  postgres:
-    image: postgres:15-alpine
-    environment:
-      POSTGRES_DB: face_recognition
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-    ports:
-      - "64333:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   # Face Recognition Service
   face-service:
     build: .
@@ -34,13 +17,7 @@ services:
       - DOOR_ENABLED
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    depends_on:
-      postgres:
-        condition: service_healthy
     volumes:
       - ./app:/app/app        # Код приложения (разработка)
       - ./alembic:/app/alembic  # Миграции
       - ./models:/app/models    # Модели ML
-
-volumes:
-  postgres_data:
