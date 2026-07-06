@@ -26,5 +26,5 @@ RUN mkdir -p models
 # Открытие порта
 EXPOSE 8000
 
-# Команда запуска (с reload для разработки)
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# Запуск без --reload для прода
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
