@@ -37,10 +37,40 @@ async def lifespan(app: FastAPI):
             print("Door cache started")
         except Exception as e:
             print(f"Door cache init error: {e}")
-    
+
+    # Camera workers: подключение к RTSP камерам
+    camera_tasks = []
+    if settings.CAMERAS_ENABLED:
+        try:
+            from app.services.camera_worker import CameraWorker
+            from app.core.database import async_session_factory
+            from sqlalchemy import select
+            from app.models.database_models import DoorAccessDoor
+
+            async with async_session_factory() as db:
+                stmt = select(DoorAccessDoor).where(DoorAccessDoor.is_active == True)
+                result = await db.execute(stmt)
+                doors = result.scalars().all()
+
+            for door in doors:
+                if door.related_camera and door.related_camera != "local":
+                    worker = CameraWorker(
+                        door_id=door.id,
+                        door_name=door.name or str(door.id),
+                        camera_url=door.related_camera,
+                    )
+                    camera_tasks.append(asyncio.create_task(worker.run()))
+                    print(f"  Camera worker started: {door.name} ({door.related_camera})")
+
+            print(f"Started {len(camera_tasks)} camera workers")
+        except Exception as e:
+            print(f"Camera workers init error: {e}")
+
     print("Service ready")
     yield
-    
+
+    for task in camera_tasks:
+        task.cancel()
     if cache_task:
         cache_task.cancel()
     await close_db()

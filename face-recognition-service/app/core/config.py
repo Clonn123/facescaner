@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     HR_API_KEY: str = ""
     CAMERA_URL: str = "local"
 
+    # Camera workers
+    CAMERAS_ENABLED: bool = False
+
     # CORS
     CORS_ORIGINS: str = "http://localhost,http://localhost:3000,http://localhost:8080"
 
