@@ -1,8 +1,7 @@
 """
-Local test script - оптимизированный вариант.
-Детекция лица только раз в 10 кадров.
-Anti-spoof раз в 5 кадров.
-Между ними — используем bbox от предыдущего кадра (без детекции!).
+Local test script.
+Детекция лица раз в N кадров, anti-spoof, распознавание через API.
+Конфигурация через .env файл.
 """
 
 import sys
@@ -96,23 +95,23 @@ def main():
     frame_count = 0
 
     # Сглаживание: скользящее окно из предсказаний
-    REAL_WINDOW_SIZE = 5
+    REAL_WINDOW_SIZE = int(os.environ.get("REAL_WINDOW_SIZE", "5"))
 
     # Motion
-    MOTION_WINDOW = 3
-    MOTION_THRESHOLD = 1.0
+    MOTION_WINDOW = int(os.environ.get("MOTION_WINDOW", "3"))
+    MOTION_THRESHOLD = float(os.environ.get("MOTION_THRESHOLD", "1.0"))
 
     # Распознавание
     RECOGNIZE_API = "http://localhost:8000/api/v1/recognize/"
-    RECOGNIZE_RETRY_DELAY = 5  # секунд между попытками
+    RECOGNIZE_RETRY_DELAY = int(os.environ.get("RECOGNIZE_RETRY_DELAY", "5"))
     CAMERA_URL = os.environ.get("CAMERA_URL", "local")
 
     # Дверь
     print(f"Camera URL: {CAMERA_URL}\n")
 
     # Интервалы
-    DETECT_INTERVAL = 20       # Полная детекция раз в 20 кадров (~660ms при 30fps)
-    SPOOF_INTERVAL = 5         # Anti-spoof раз в 5 кадров
+    DETECT_INTERVAL = int(os.environ.get("DETECT_INTERVAL", "20"))
+    SPOOF_INTERVAL = int(os.environ.get("SPOOF_INTERVAL", "5"))
     
     fps_count = 0
     fps_time = time.time()

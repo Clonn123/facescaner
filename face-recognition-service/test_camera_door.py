@@ -56,9 +56,9 @@ from app.services.liveness.anti_spoof_onnx import AntiSpoofONNX
 from app.services.liveness.flicker_detector import FlickerDetector
 
 
-RTSP_URL = "rtsp://admin:eqwew@150.150.150.229/cam/realmonitor?channel=1&subtype=1"
+RTSP_URL = os.environ.get("RTSP_URL", "rtsp://admin:eqwew@150.150.150.229/cam/realmonitor?channel=1&subtype=1")
 RECOGNIZE_API = "http://localhost:8000/api/v1/recognize/"
-RECOGNIZE_RETRY_DELAY = 5
+RECOGNIZE_RETRY_DELAY = int(os.environ.get("RECOGNIZE_RETRY_DELAY", "5"))
 DOOR_CMD_URL = "http://150.150.150.138/cmd.cgi?psw=23das^Ds&cmd=REL,2,0,3"
 DOOR_ENABLED = os.environ.get("DOOR_ENABLED", "false").lower() == "true"
 
@@ -114,15 +114,15 @@ def main():
     frame_count = 0
 
     # Сглаживание
-    REAL_WINDOW_SIZE = 5
+    REAL_WINDOW_SIZE = int(os.environ.get("REAL_WINDOW_SIZE", "5"))
 
     # Motion
-    MOTION_WINDOW = 3
-    MOTION_THRESHOLD = 1.0
+    MOTION_WINDOW = int(os.environ.get("MOTION_WINDOW", "3"))
+    MOTION_THRESHOLD = float(os.environ.get("MOTION_THRESHOLD", "1.0"))
 
     # Интервалы
-    DETECT_INTERVAL = 10
-    SPOOF_INTERVAL = 5
+    DETECT_INTERVAL = int(os.environ.get("DETECT_INTERVAL", "10"))
+    SPOOF_INTERVAL = int(os.environ.get("SPOOF_INTERVAL", "5"))
 
     fps_count = 0
     fps_time = time.time()

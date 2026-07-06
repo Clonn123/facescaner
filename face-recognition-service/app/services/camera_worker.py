@@ -36,14 +36,6 @@ def iou(box_a, box_b):
 class CameraWorker:
     """Обработка кадров с одной RTSP камеры."""
 
-    DETECT_INTERVAL = 20
-    SPOOF_INTERVAL = 5
-    REAL_WINDOW_SIZE = 5
-    MOTION_WINDOW = 3
-    MOTION_THRESHOLD = 1.0
-    RECOGNIZE_RETRY_DELAY = 5
-    CANDIDATES_REFRESH = 30
-
     # Общий lock для ONNX моделей — one call at a time
     _model_lock = asyncio.Lock()
 
@@ -107,7 +99,7 @@ class CameraWorker:
         tracks = self.tracks
         fc = self.frame_count
 
-        need_detect = (fc % self.DETECT_INTERVAL == 0)
+        need_detect = (fc % settings.DETECT_INTERVAL == 0)
 
         if need_detect or not tracks:
             async with self._model_lock:
@@ -171,7 +163,7 @@ class CameraWorker:
                 del tracks[tid]
 
         for idx, tr in enumerate(list(tracks.values())):
-            if fc - tr["last_seen"] > self.DETECT_INTERVAL:
+            if fc - tr["last_seen"] > settings.DETECT_INTERVAL:
                 continue
 
             x, y, x2, y2 = map(int, tr["bbox"])
@@ -193,11 +185,11 @@ class CameraWorker:
                 if tr["prev_face_gray"] is not None:
                     diff = np.mean(np.abs(face_roi_gray.astype(float) - tr["prev_face_gray"].astype(float)))
                     tr["motion_history"].append(diff)
-                    if len(tr["motion_history"]) > self.MOTION_WINDOW:
+                    if len(tr["motion_history"]) > settings.MOTION_WINDOW:
                         tr["motion_history"].pop(0)
                     tr["is_static"] = (
-                        len(tr["motion_history"]) == self.MOTION_WINDOW
-                        and all(m < self.MOTION_THRESHOLD for m in tr["motion_history"])
+                        len(tr["motion_history"]) == settings.MOTION_WINDOW
+                        and all(m < settings.MOTION_THRESHOLD for m in tr["motion_history"])
                     )
                 tr["prev_face_gray"] = face_roi_gray
             elif face_roi.size > 0:
@@ -206,13 +198,13 @@ class CameraWorker:
             tr["flicker_score"] = tr["flicker_detector"].update(face_roi)
 
             force = tr.pop("_force_spoof", False)
-            if fc % self.SPOOF_INTERVAL == 0 or force:
+            if fc % settings.SPOOF_INTERVAL == 0 or force:
                 try:
                     async with self._model_lock:
                         result = self.anti_spoof.predict(face_roi)
                     is_real = result["is_real"] and not tr["is_static"] and tr["flicker_score"] < 0.5
                     tr["prediction_history"].append(is_real)
-                    if len(tr["prediction_history"]) > self.REAL_WINDOW_SIZE:
+                    if len(tr["prediction_history"]) > settings.REAL_WINDOW_SIZE:
                         tr["prediction_history"].pop(0)
 
                     motion_val = np.mean(tr["motion_history"]) if tr["motion_history"] else 0
@@ -223,8 +215,8 @@ class CameraWorker:
                     print(f"{self.tag} Anti-spoof error: {e}")
 
             smoothed_real = (
-                len(tr["prediction_history"]) == self.REAL_WINDOW_SIZE
-                and sum(tr["prediction_history"]) >= self.REAL_WINDOW_SIZE - 1
+                len(tr["prediction_history"]) == settings.REAL_WINDOW_SIZE
+                and sum(tr["prediction_history"]) >= settings.REAL_WINDOW_SIZE - 1
             )
 
             need_retry = False
@@ -233,7 +225,7 @@ class CameraWorker:
                 is_error = r.get("error")
                 is_not_recognized = not r.get("recognized")
                 time_since = time.time() - tr["last_recognize_time"]
-                if (is_error or is_not_recognized) and time_since > self.RECOGNIZE_RETRY_DELAY:
+                if (is_error or is_not_recognized) and time_since > settings.RECOGNIZE_RETRY_DELAY:
                     need_retry = True
 
             if (smoothed_real and not tr["was_real_before"]) or need_retry:
@@ -284,7 +276,7 @@ class CameraWorker:
     async def _get_candidates(self):
         """Получить кандидатов с кешированием."""
         now = time.time()
-        if self._candidates and (now - self._candidates_time) < self.CANDIDATES_REFRESH:
+        if self._candidates and (now - self._candidates_time) < settings.CANDIDATES_REFRESH:
             return self._candidates
 
         from app.core.database import async_session_factory
