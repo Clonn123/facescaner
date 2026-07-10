@@ -62,11 +62,14 @@ async def recognize_face(
     storage = StorageService(db)
     
     # Декодирование изображения
+    t0 = time.time()
     image = decode_image(request)
     if image is None:
         raise HTTPException(status_code=400, detail="No image provided")
+    print(f"[Timing] decode: {(time.time()-t0)*1000:.0f}ms")
     
     # 1. Детекция лица (или используем переданный bbox)
+    t0 = time.time()
     if request.bbox:
         face_info = {
             "bbox": request.bbox,
@@ -77,6 +80,7 @@ async def recognize_face(
         faces = [face_info]
     else:
         faces = detector.detect_faces(image)
+    print(f"[Timing] detect: {(time.time()-t0)*1000:.0f}ms, found {len(faces)}")
     
     if not faces:
         return RecognizeResponse(
@@ -90,9 +94,11 @@ async def recognize_face(
     x1, y1, x2, y2 = map(int, face_info["bbox"])
     
     # 2. Anti-spoof проверка
+    t0 = time.time()
     result = anti_spoof.predict_from_bbox(image, (x1, y1, x2, y2))
     liveness_score = result["liveness_score"]
     is_live = result["is_real"]
+    print(f"[Timing] anti-spoof: {(time.time()-t0)*1000:.0f}ms, live={is_live}, score={liveness_score:.3f}")
     
     if not is_live:
         return RecognizeResponse(
@@ -106,12 +112,16 @@ async def recognize_face(
         )
     
     # 3. Генерация embedding
+    t0 = time.time()
     embedding = recognizer.generate_embedding(image, face_info)
+    print(f"[Timing] embedding: {(time.time()-t0)*1000:.0f}ms")
     if embedding is None:
         raise HTTPException(status_code=500, detail="Failed to generate face embedding")
     
     # 4. Поиск среди зарегистрированных пользователей
+    t0 = time.time()
     candidates = await storage.get_all_users_for_recognition()
+    print(f"[Timing] db candidates: {(time.time()-t0)*1000:.0f}ms, count={len(candidates)}")
     
     if not candidates:
         return RecognizeResponse(
@@ -125,7 +135,9 @@ async def recognize_face(
         )
     
     # 5. Поиск лучшего совпадения
+    t0 = time.time()
     match = recognizer.find_best_match(embedding, candidates)
+    print(f"[Timing] match: {(time.time()-t0)*1000:.0f}ms")
     
     if match:
         user_id, similarity = match
@@ -172,8 +184,9 @@ async def recognize_face(
             except Exception as e:
                 print(f"[DoorAccess] Error: {e}")
         
+        print(f"[Timing] total: {(time.time()-start_time)*1000:.0f}ms")
         return RecognizeResponse(
-            recognized=True,
+            recognized=user is not None,
             user_id=user_id,
             name=user.name if user else None,
             similarity=float(similarity),

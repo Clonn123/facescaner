@@ -61,18 +61,18 @@ class CameraWorker:
     async def run(self):
         """Главный цикл: подключение → чтение кадров → обработка."""
         if self.camera_url == "local":
-            print(f"{self.tag} Skipping RTSP worker for local camera")
+            print(f"{self.tag} Skipping RTSP worker for local camera", flush=True)
             return
 
-        print(f"{self.tag} Starting (camera={self.camera_url}, door={self.door_id})")
+        print(f"{self.tag} Starting (camera={self.camera_url}, door={self.door_id})", flush=True)
 
         while True:
             if not self.rtsp.connect():
-                print(f"{self.tag} Cannot connect to {self.camera_url}")
+                print(f"{self.tag} Cannot connect to {self.camera_url}", flush=True)
                 await self.rtsp.wait_and_reconnect()
                 continue
 
-            print(f"{self.tag} Connected to {self.camera_url}")
+            print(f"{self.tag} Connected to {self.camera_url}", flush=True)
             consecutive_errors = 0
 
             while True:
@@ -80,7 +80,7 @@ class CameraWorker:
                 if not ret or frame is None:
                     consecutive_errors += 1
                     if consecutive_errors > 30:
-                        print(f"{self.tag} Too many errors, reconnecting...")
+                        print(f"{self.tag} Too many errors, reconnecting...", flush=True)
                         break
                     await asyncio.sleep(0.01)
                     continue

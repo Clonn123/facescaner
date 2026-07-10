@@ -50,17 +50,31 @@ class AntiSpoofONNX:
             print(f"Failed to download anti-spoof model: {e}")
 
     def _load_model(self):
-        """Load ONNX model with GPU + graph optimization."""
+        """Load ONNX model with OpenVINO (Intel CPU) or CPU fallback."""
         if not self.model_path.exists():
             return
         
         try:
-            # Session options для оптимизации
             opts = ort.SessionOptions()
             opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
             opts.intra_op_num_threads = 0
             opts.inter_op_num_threads = 0
             
+            # Пробуем OpenVINO (Intel CPU оптимизация)
+            try:
+                self.session = ort.InferenceSession(
+                    str(self.model_path),
+                    sess_options=opts,
+                    providers=["OpenVINOExecutionProvider", "CPUExecutionProvider"]
+                )
+                self.input_name = self.session.get_inputs()[0].name
+                self.is_ready = True
+                print("MiniFASNet loaded with OpenVINO", flush=True)
+                return
+            except Exception:
+                pass
+            
+            # Fallback на CPU
             self.session = ort.InferenceSession(
                 str(self.model_path),
                 sess_options=opts,
@@ -68,20 +82,9 @@ class AntiSpoofONNX:
             )
             self.input_name = self.session.get_inputs()[0].name
             self.is_ready = True
-            print("MiniFASNet anti-spoof model loaded successfully.")
+            print("MiniFASNet loaded with CPU")
         except Exception as e:
             print(f"Error loading anti-spoof model: {e}")
-            # Fallback to CPU
-            try:
-                self.session = ort.InferenceSession(
-                    str(self.model_path),
-                    providers=["CPUExecutionProvider"]
-                )
-                self.input_name = self.session.get_inputs()[0].name
-                self.is_ready = True
-                print("Loaded on CPU (GPU not available).")
-            except Exception as e2:
-                print(f"Error loading anti-spoof model: {e2}")
 
     def predict(self, face_crop: np.ndarray, bbox: tuple = None) -> dict:
         """

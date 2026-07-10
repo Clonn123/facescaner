@@ -70,12 +70,12 @@ class RTSPConnection:
 
     def release(self):
         self._running = False
-        if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=2)
-        self._thread = None
         if self.cap is not None:
             self.cap.release()
             self.cap = None
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=3)
+        self._thread = None
         self._connected = False
         while not self._queue.empty():
             try:

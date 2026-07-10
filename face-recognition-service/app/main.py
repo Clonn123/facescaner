@@ -2,6 +2,7 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import asyncio
+import sys
 
 from app.core.config import get_settings
 from app.core.database import init_db, close_db
@@ -14,16 +15,16 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Управление жизненным циклом приложения."""
-    print("Initializing Face Recognition Service...")
+    print("Initializing Face Recognition Service...", flush=True)
     await init_db()
-    print("Database initialized")
+    print("Database initialized", flush=True)
     
     # Прогрев моделей: загружаем сразу, чтобы первый запрос не ждал
     try:
         from app.services.model_singletons import warmup
         warmup()
     except Exception as e:
-        print(f"  Model loading error: {e}")
+        print(f"  Model loading error: {e}", flush=True)
     
     # Кеш дверей: загружаем + запускаем фоновое обновление
     cache_task = None
@@ -34,9 +35,9 @@ async def lifespan(app: FastAPI):
             async with async_session_factory() as db:
                 await refresh_door_cache(db)
             cache_task = asyncio.create_task(start_cache_refresh_loop())
-            print("Door cache started")
+            print("Door cache started", flush=True)
         except Exception as e:
-            print(f"Door cache init error: {e}")
+            print(f"Door cache init error: {e}", flush=True)
 
     # Camera workers: подключение к RTSP камерам
     camera_tasks = []
@@ -60,13 +61,13 @@ async def lifespan(app: FastAPI):
                         camera_url=door.related_camera,
                     )
                     camera_tasks.append(asyncio.create_task(worker.run()))
-                    print(f"  Camera worker started: {door.name} ({door.related_camera})")
+                    print(f"  Camera worker started: {door.name} ({door.related_camera})", flush=True)
 
-            print(f"Started {len(camera_tasks)} camera workers")
+            print(f"Started {len(camera_tasks)} camera workers", flush=True)
         except Exception as e:
-            print(f"Camera workers init error: {e}")
+            print(f"Camera workers init error: {e}", flush=True)
 
-    print("Service ready")
+    print("Service ready", flush=True)
     yield
 
     for task in camera_tasks:

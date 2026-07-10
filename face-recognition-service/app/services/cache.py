@@ -29,7 +29,7 @@ async def refresh_door_cache(db: AsyncSession) -> int:
             mapping[door.related_camera] = door.id
 
     _door_cache = mapping
-    print(f"[DoorCache] Refreshed: {len(mapping)} doors cached")
+    print(f"[DoorCache] Refreshed: {len(mapping)} doors cached", flush=True)
     return len(mapping)
 
 

@@ -20,12 +20,21 @@ class FaceDetector:
         # Скачиваем и распаковываем модели вручную
         self._download_and_extract_models()
         
-        # Создаём FaceAnalysis
-        self.app = FaceAnalysis(
-            name="antelopev2",
-            root="/app",
-            providers=["CPUExecutionProvider"]
-        )
+        # Создаём FaceAnalysis с поддержкой OpenVINO
+        try:
+            self.app = FaceAnalysis(
+                name="antelopev2",
+                root="/app",
+                providers=["OpenVINOExecutionProvider", "CPUExecutionProvider"]
+            )
+            print("FaceDetector: using OpenVINO", flush=True)
+        except Exception:
+            self.app = FaceAnalysis(
+                name="antelopev2",
+                root="/app",
+                providers=["CPUExecutionProvider"]
+            )
+            print("FaceDetector: using CPU (OpenVINO not available)")
         self.app.prepare(ctx_id=0, det_size=(160, 160))
         self.is_ready = False
 

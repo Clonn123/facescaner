@@ -1,5 +1,7 @@
 FROM python:3.11-slim
 
+ENV PYTHONUNBUFFERED=1
+
 # Установка системных зависимостей
 RUN apt-get update && apt-get install -y \
     build-essential \
@@ -15,7 +17,10 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Установка Python зависимостей
-RUN pip install --no-cache-dir -r requirements.txt
+# insightface тянет onnxruntime, заменяем на onnxruntime-openvino с поддержкой OpenVINO
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip uninstall -y onnxruntime \
+    && pip install --no-cache-dir onnxruntime-openvino
 
 # Копирование приложения
 COPY . .

@@ -28,15 +28,16 @@ def get_anti_spoof() -> AntiSpoofONNX:
 
 def warmup():
     """Pre-load all models at startup."""
-    print("Warming up models...")
+    print("Warming up models...", flush=True)
     det = get_detector()
     # Detector warmup on real frame size
     test_img = np.zeros((480, 640, 3), dtype=np.uint8)
     det.app.get(test_img)
-    print("  Face detector ready")
+    print("  Face detector ready", flush=True)
 
     spoof = get_anti_spoof()
     # Anti-spoof warmup on face crop size
     dummy = np.zeros((200, 200, 3), dtype=np.uint8)
     spoof.predict(dummy)
-    print("  Anti-spoof ready")
+    providers = spoof.session.get_providers() if spoof.session else "none"
+    print(f"  Anti-spoof ready (providers: {providers})", flush=True)
