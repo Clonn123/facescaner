@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     # Camera workers
     CAMERAS_ENABLED: bool = False
 
+    # Detection
+    DET_SIZE: int = 160
+
     # Camera worker pipeline
     # Как часто запускать детекцию лиц (каждые N кадров)
     DETECT_INTERVAL: int = 20

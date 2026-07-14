@@ -35,7 +35,8 @@ class FaceDetector:
                 providers=["CPUExecutionProvider"]
             )
             print("FaceDetector: using CPU (OpenVINO not available)")
-        self.app.prepare(ctx_id=0, det_size=(160, 160))
+        det_size = settings.DET_SIZE
+        self.app.prepare(ctx_id=0, det_size=(det_size, det_size))
         self.is_ready = False
 
     def _download_and_extract_models(self):
