@@ -26,18 +26,18 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"  Model loading error: {e}", flush=True)
     
-    # Кеш дверей: загружаем + запускаем фоновое обновление
+    # Кеш дверей и кандидатов: загружаем + запускаем фоновое обновление
     cache_task = None
-    if settings.HR_API_KEY:
-        try:
-            from app.services.cache import refresh_door_cache, start_cache_refresh_loop
-            from app.core.database import async_session_factory
-            async with async_session_factory() as db:
-                await refresh_door_cache(db)
-            cache_task = asyncio.create_task(start_cache_refresh_loop())
-            print("Door cache started", flush=True)
-        except Exception as e:
-            print(f"Door cache init error: {e}", flush=True)
+    try:
+        from app.services.cache import refresh_door_cache, refresh_candidates_cache, start_cache_refresh_loop
+        from app.core.database import async_session_factory
+        async with async_session_factory() as db:
+            await refresh_door_cache(db)
+            await refresh_candidates_cache(db)
+        cache_task = asyncio.create_task(start_cache_refresh_loop())
+        print("Cache started (doors + candidates)", flush=True)
+    except Exception as e:
+        print(f"Cache init error: {e}", flush=True)
 
     # Camera workers: подключение к RTSP камерам
     camera_tasks = []

@@ -13,7 +13,7 @@ from app.core.database import get_db
 from app.services.model_singletons import get_detector, get_anti_spoof
 from app.services.face_recognizer import FaceRecognizer
 from app.services.storage import StorageService
-from app.services.cache import get_door_id_by_camera
+from app.services.cache import get_door_id_by_camera, get_candidates
 from app.models.schemas import RecognizeRequest, RecognizeResponse
 from app.core.config import get_settings
 
@@ -122,7 +122,7 @@ async def recognize_face(
     
     # 4. Поиск среди зарегистрированных пользователей
     t0 = time.time()
-    candidates = await storage.get_all_users_for_recognition()
+    candidates = await get_candidates(db)
     print(f"[Timing] db candidates: {(time.time()-t0)*1000:.0f}ms, count={len(candidates)}")
     
     if not candidates:

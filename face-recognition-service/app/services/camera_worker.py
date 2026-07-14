@@ -55,10 +55,6 @@ class CameraWorker:
         self.next_track_id = 0
         self.frame_count = 0
 
-        # Кеш кандидатов
-        self._candidates = []
-        self._candidates_time = 0.0
-
     async def run(self):
         """Главный цикл: подключение → чтение кадров → обработка."""
         if self.camera_url == "local":
@@ -275,19 +271,12 @@ class CameraWorker:
         await self._open_door(user_id, frame, tr)
 
     async def _get_candidates(self):
-        """Получить кандидатов с кешированием."""
-        now = time.time()
-        if self._candidates and (now - self._candidates_time) < settings.CANDIDATES_REFRESH:
-            return self._candidates
-
+        """Получить кандидатов из глобального кеша."""
         from app.core.database import async_session_factory
-        from app.services.storage import StorageService
+        from app.services.cache import get_candidates
 
         async with async_session_factory() as db:
-            storage = StorageService(db)
-            self._candidates = await storage.get_all_users_for_recognition()
-            self._candidates_time = now
-            return self._candidates
+            return await get_candidates(db)
 
     async def _open_door(self, user_id: str, frame: np.ndarray, track: dict):
         """POST на бэкенд: door_id + user_id + photo."""

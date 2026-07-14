@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     # Задержка между повторными попытками распознавания при ошибке (сек)
     RECOGNIZE_RETRY_DELAY: int = 5
     # Как часто обновлять список кандидатов из БД (сек)
-    CANDIDATES_REFRESH: int = 30
+    CANDIDATES_REFRESH: int = 60
 
     # CORS
     CORS_ORIGINS: str = "http://localhost,http://localhost:3000,http://localhost:8080"
