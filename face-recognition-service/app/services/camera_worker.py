@@ -7,6 +7,7 @@
 import asyncio
 import time
 import uuid
+import json
 import urllib.request
 import cv2
 import numpy as np
@@ -271,7 +272,7 @@ class CameraWorker:
         }
         print(f"{self.tag} Recognized: user={user_id}, similarity={similarity:.3f}")
 
-        await self._open_door(user_id, frame)
+        await self._open_door(user_id, frame, tr)
 
     async def _get_candidates(self):
         """Получить кандидатов с кешированием."""
@@ -288,7 +289,7 @@ class CameraWorker:
             self._candidates_time = now
             return self._candidates
 
-    async def _open_door(self, user_id: str, frame: np.ndarray):
+    async def _open_door(self, user_id: str, frame: np.ndarray, track: dict):
         """POST на бэкенд: door_id + user_id + photo."""
         if not settings.HR_API_KEY:
             return
@@ -301,32 +302,55 @@ class CameraWorker:
         _, jpeg = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
         photo_bytes = jpeg.tobytes()
 
-        boundary = uuid.uuid4().hex
-        body = b""
-        for field, value in [("userId", user_id), ("doorId", door_id)]:
+        MAX_DOOR_RETRIES = 5
+        DOOR_RETRY_DELAY = 1.0
+
+        for attempt in range(MAX_DOOR_RETRIES):
+            if track not in self.tracks.values():
+                print(f"{self.tag} Face track gone, stopping door retry")
+                break
+
+            boundary = uuid.uuid4().hex
+            body = b""
+            for field, value in [("userId", user_id), ("doorId", door_id)]:
+                body += f"--{boundary}\r\n".encode()
+                body += f'Content-Disposition: form-data; name="{field}"\r\n\r\n'.encode()
+                body += f"{value}\r\n".encode()
             body += f"--{boundary}\r\n".encode()
-            body += f'Content-Disposition: form-data; name="{field}"\r\n\r\n'.encode()
-            body += f"{value}\r\n".encode()
-        body += f"--{boundary}\r\n".encode()
-        body += b'Content-Disposition: form-data; name="photo"; filename="frame.jpg"\r\n'
-        body += b"Content-Type: image/jpeg\r\n\r\n"
-        body += photo_bytes
-        body += f"\r\n--{boundary}--\r\n".encode()
+            body += b'Content-Disposition: form-data; name="photo"; filename="frame.jpg"\r\n'
+            body += b"Content-Type: image/jpeg\r\n\r\n"
+            body += photo_bytes
+            body += f"\r\n--{boundary}--\r\n".encode()
 
-        def send_request():
-            req = urllib.request.Request(
-                f"{settings.BACKEND_API_BASE_URL}/door-access/open-door",
-                data=body,
-                headers={
-                    "Content-Type": f"multipart/form-data; boundary={boundary}",
-                    "hr-api-key": settings.HR_API_KEY,
-                },
-            )
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                return resp.status
+            def send_request():
+                req = urllib.request.Request(
+                    f"{settings.BACKEND_API_BASE_URL}/door-access/open-door",
+                    data=body,
+                    headers={
+                        "Content-Type": f"multipart/form-data; boundary={boundary}",
+                        "hr-api-key": settings.HR_API_KEY,
+                    },
+                )
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    return resp.read().decode()
 
-        try:
-            status = await asyncio.to_thread(send_request)
-            print(f"{self.tag} Door opened: door={door_id}, user={user_id}, status={status}")
-        except Exception as e:
-            print(f"{self.tag} Door open error: {e}")
+            try:
+                resp_data = await asyncio.to_thread(send_request)
+                print(f"{self.tag} Door attempt {attempt+1}: door={door_id}, user={user_id}, resp={resp_data}")
+
+                try:
+                    resp_json = json.loads(resp_data)
+                except Exception:
+                    resp_json = {}
+
+                if resp_json.get("cooldown"):
+                    if attempt < MAX_DOOR_RETRIES - 1:
+                        print(f"{self.tag} Cooldown active, retrying in {DOOR_RETRY_DELAY}s...")
+                        await asyncio.sleep(DOOR_RETRY_DELAY)
+                        continue
+                    else:
+                        print(f"{self.tag} Cooldown still active after {MAX_DOOR_RETRIES} attempts")
+                break
+            except Exception as e:
+                print(f"{self.tag} Door open error: {e}")
+                break

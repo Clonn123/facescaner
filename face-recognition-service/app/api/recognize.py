@@ -1,6 +1,8 @@
 import base64
 import cv2
 import uuid
+import json
+import asyncio
 import numpy as np
 import time
 import urllib.request
@@ -157,28 +159,47 @@ async def recognize_face(
                     _, jpeg = cv2.imencode('.jpg', image, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
                     photo_bytes = jpeg.tobytes()
 
-                    boundary = uuid.uuid4().hex
-                    body = b""
-                    for field, value in [("userId", user_id), ("doorId", door_id)]:
-                        body += f"--{boundary}\r\n".encode()
-                        body += f'Content-Disposition: form-data; name="{field}"\r\n\r\n'.encode()
-                        body += f"{value}\r\n".encode()
-                    body += f"--{boundary}\r\n".encode()
-                    body += b'Content-Disposition: form-data; name="photo"; filename="frame.jpg"\r\n'
-                    body += b"Content-Type: image/jpeg\r\n\r\n"
-                    body += photo_bytes
-                    body += f"\r\n--{boundary}--\r\n".encode()
+                    MAX_DOOR_RETRIES = 5
+                    DOOR_RETRY_DELAY = 1.0
 
-                    req = urllib.request.Request(
-                        f"{settings.BACKEND_API_BASE_URL}/door-access/open-door",
-                        data=body,
-                        headers={
-                            "Content-Type": f"multipart/form-data; boundary={boundary}",
-                            "hr-api-key": settings.HR_API_KEY,
-                        },
-                    )
-                    with urllib.request.urlopen(req, timeout=5) as resp:
-                        print(f"[DoorAccess] OK: door={door_id}, user={user_id}, status={resp.status}")
+                    for attempt in range(MAX_DOOR_RETRIES):
+                        boundary = uuid.uuid4().hex
+                        body = b""
+                        for field, value in [("userId", user_id), ("doorId", door_id)]:
+                            body += f"--{boundary}\r\n".encode()
+                            body += f'Content-Disposition: form-data; name="{field}"\r\n\r\n'.encode()
+                            body += f"{value}\r\n".encode()
+                        body += f"--{boundary}\r\n".encode()
+                        body += b'Content-Disposition: form-data; name="photo"; filename="frame.jpg"\r\n'
+                        body += b"Content-Type: image/jpeg\r\n\r\n"
+                        body += photo_bytes
+                        body += f"\r\n--{boundary}--\r\n".encode()
+
+                        req = urllib.request.Request(
+                            f"{settings.BACKEND_API_BASE_URL}/door-access/open-door",
+                            data=body,
+                            headers={
+                                "Content-Type": f"multipart/form-data; boundary={boundary}",
+                                "hr-api-key": settings.HR_API_KEY,
+                            },
+                        )
+                        with urllib.request.urlopen(req, timeout=5) as resp:
+                            resp_data = resp.read().decode()
+                            print(f"[DoorAccess] Attempt {attempt+1}: door={door_id}, user={user_id}, status={resp.status}, body={resp_data}")
+
+                            try:
+                                resp_json = json.loads(resp_data)
+                            except Exception:
+                                resp_json = {}
+
+                            if resp_json.get("cooldown"):
+                                if attempt < MAX_DOOR_RETRIES - 1:
+                                    print(f"[DoorAccess] Cooldown active, retrying in {DOOR_RETRY_DELAY}s...")
+                                    await asyncio.sleep(DOOR_RETRY_DELAY)
+                                    continue
+                                else:
+                                    print(f"[DoorAccess] Cooldown still active after {MAX_DOOR_RETRIES} attempts, giving up")
+                            break
                 else:
                     print(f"[DoorAccess] No door found for camera_url={request.camera_url}")
             except Exception as e:
