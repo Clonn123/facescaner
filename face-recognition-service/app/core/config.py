@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     # Detection
     DET_SIZE: int = 160
 
+    # Door open retries
+    MAX_DOOR_RETRIES: int = 5
+    DOOR_RETRY_DELAY: float = 1.0
+
     # Camera worker pipeline
     # Как часто запускать детекцию лиц (каждые N кадров)
     DETECT_INTERVAL: int = 20

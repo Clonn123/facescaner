@@ -159,10 +159,7 @@ async def recognize_face(
                     _, jpeg = cv2.imencode('.jpg', image, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
                     photo_bytes = jpeg.tobytes()
 
-                    MAX_DOOR_RETRIES = 5
-                    DOOR_RETRY_DELAY = 1.0
-
-                    for attempt in range(MAX_DOOR_RETRIES):
+                    for attempt in range(settings.MAX_DOOR_RETRIES):
                         boundary = uuid.uuid4().hex
                         body = b""
                         for field, value in [("userId", user_id), ("doorId", door_id)]:
@@ -192,13 +189,14 @@ async def recognize_face(
                             except Exception:
                                 resp_json = {}
 
-                            if resp_json.get("cooldown"):
-                                if attempt < MAX_DOOR_RETRIES - 1:
-                                    print(f"[DoorAccess] Cooldown active, retrying in {DOOR_RETRY_DELAY}s...")
-                                    await asyncio.sleep(DOOR_RETRY_DELAY)
+                            data = resp_json.get("data", {})
+                            if data.get("cooldown"):
+                                if attempt < settings.MAX_DOOR_RETRIES - 1:
+                                    print(f"[DoorAccess] Cooldown active, retrying in {settings.DOOR_RETRY_DELAY}s...")
+                                    await asyncio.sleep(settings.DOOR_RETRY_DELAY)
                                     continue
                                 else:
-                                    print(f"[DoorAccess] Cooldown still active after {MAX_DOOR_RETRIES} attempts, giving up")
+                                    print(f"[DoorAccess] Cooldown still active after {settings.MAX_DOOR_RETRIES} attempts, giving up")
                             break
                 else:
                     print(f"[DoorAccess] No door found for camera_url={request.camera_url}")

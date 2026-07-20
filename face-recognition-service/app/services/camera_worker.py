@@ -152,6 +152,7 @@ class CameraWorker:
                         "flicker_detector": FlickerDetector(window_size=30, min_samples=15),
                         "flicker_score": 0.0,
                         "last_recognize_time": 0.0,
+                        "door_opened": False,
                     }
                     self.next_track_id += 1
 
@@ -268,7 +269,10 @@ class CameraWorker:
         }
         print(f"{self.tag} Recognized: user={user_id}, similarity={similarity:.3f}")
 
-        await self._open_door(user_id, frame, tr)
+        if not tr.get("door_opened"):
+            opened = await self._open_door(user_id, frame, tr)
+            if opened:
+                tr["door_opened"] = True
 
     async def _get_candidates(self):
         """Получить кандидатов из глобального кеша."""
@@ -278,26 +282,23 @@ class CameraWorker:
         async with async_session_factory() as db:
             return await get_candidates(db)
 
-    async def _open_door(self, user_id: str, frame: np.ndarray, track: dict):
-        """POST на бэкенд: door_id + user_id + photo."""
+    async def _open_door(self, user_id: str, frame: np.ndarray, track: dict) -> bool:
+        """POST на бэкенд: door_id + user_id + photo. Returns True if door opened."""
         if not settings.HR_API_KEY:
-            return
+            return False
 
         door_id = await get_door_id_by_camera(self.camera_url)
         if not door_id:
             print(f"{self.tag} No door found for camera_url={self.camera_url}")
-            return
+            return False
 
         _, jpeg = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
         photo_bytes = jpeg.tobytes()
 
-        MAX_DOOR_RETRIES = 5
-        DOOR_RETRY_DELAY = 1.0
-
-        for attempt in range(MAX_DOOR_RETRIES):
+        for attempt in range(settings.MAX_DOOR_RETRIES):
             if track not in self.tracks.values():
                 print(f"{self.tag} Face track gone, stopping door retry")
-                break
+                return False
 
             boundary = uuid.uuid4().hex
             body = b""
@@ -332,14 +333,18 @@ class CameraWorker:
                 except Exception:
                     resp_json = {}
 
-                if resp_json.get("cooldown"):
-                    if attempt < MAX_DOOR_RETRIES - 1:
-                        print(f"{self.tag} Cooldown active, retrying in {DOOR_RETRY_DELAY}s...")
-                        await asyncio.sleep(DOOR_RETRY_DELAY)
+                data = resp_json.get("data", {})
+                if data.get("cooldown"):
+                    if attempt < settings.MAX_DOOR_RETRIES - 1:
+                        print(f"{self.tag} Cooldown active, retrying in {settings.DOOR_RETRY_DELAY}s...")
+                        await asyncio.sleep(settings.DOOR_RETRY_DELAY)
                         continue
                     else:
-                        print(f"{self.tag} Cooldown still active after {MAX_DOOR_RETRIES} attempts")
-                break
+                        print(f"{self.tag} Cooldown still active after {settings.MAX_DOOR_RETRIES} attempts")
+                        return False
+                return data.get("success", False)
             except Exception as e:
                 print(f"{self.tag} Door open error: {e}")
-                break
+                return False
+
+        return False
